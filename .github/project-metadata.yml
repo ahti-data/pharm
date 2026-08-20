@@ -1,0 +1,4 @@
+project_name: 'pharm'
+repository_mode: 'create'
+source_upload_name: 'iteration 0'
+output_upload_name: 'disabled'
