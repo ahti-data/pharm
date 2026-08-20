@@ -1,7 +1,11 @@
-# Template Shiny app
+# Dashboard: psychofarmacagebruik en GGZ-zorggebruik (iteratie 0)
 #
-# Put project data in the data/ folder and replace the placeholders below
-# with your dashboard logic.
+# Toont resultaten van de pharm-pipeline (zie het repo-brede README.md):
+# medicatiegebruik (ATC), GGZ-zorggebruik en -kosten, en de prevalentie van
+# psychische diagnosegroepen, uitgesplitst naar SES-WOA, inkomensklasse,
+# opleidingsniveau en leeftijdsgroep. Alle cijfers zijn al geaggregeerd
+# binnen de beveiligde CBS Remote Access-omgeving -- dit dashboard leest
+# uitsluitend de niet-herleidbare Excel-outputs in data/.
 
 source("data/metadata/brand_colors.R")
 source("utils/format_thinkcell_download.R")
@@ -11,55 +15,188 @@ source("utils/favorites.R")
 source("utils/export_history.R")
 source("utils/chart_downloads.R")
 source("utils/dictionary.R")
+source("data/metadata/dictionary_seed.R")
 source("utils/dictionary_admin.R")
 source("utils/tab_theme.R")
 source("utils/auth.R")
+source("utils/pharm_data.R")
 
 library(shiny)
 library(shinymanager)
 library(dplyr)
 library(ggplot2)
+library(readxl)
 
-# Add any project-specific data import helpers here.
-load_project_data <- function() {
-  NULL
+DASHBOARD_TITLE <- "ahti — Psychofarmacagebruik en GGZ-zorggebruik (iteratie 0)"
+
+# Static data, read once at app startup -- every source workbook is a small,
+# already-aggregated iteration-0 output (see utils/pharm_data.R), not
+# per-session state, so there is nothing to gain from re-reading it per
+# reactive.
+ATC_PREVALENTIE_DATA <- load_atc_prevalentie()
+ATC_COMBINATIES_DATA <- load_atc_combinaties()
+GGZ_KOSTEN_DATA       <- load_ggz_kosten()
+PREV_DIAGNOSE_DATA    <- load_prevalentie_diagnoses()
+ANGST_DATA            <- load_angst_subgroepen()
+
+pharm_dim_label <- function(dim) {
+  names(DIM_CHOICES)[DIM_CHOICES == dim]
 }
 
-# Example plot data: replace with your filtered/aggregated chart data in real
-# dashboards. Read from a committed CSV (rather than inlined) so this scaffold
-# also demonstrates the data-source provenance wiring -- source_output +
-# source_mtime on chart_data_downloads_server() below -- that a real dashboard
-# uses to stamp where its data came from and when it was last edited.
-EXAMPLE_DATA_FILE <- "data/example_revenue.csv"
-example_revenue_data <- function() {
-  tibble::as_tibble(utils::read.csv(EXAMPLE_DATA_FILE, stringsAsFactors = FALSE))
+pharm_pretty <- function(raw_key, scope) {
+  dictionary_pretty(raw_key, scope = scope, fallback = function(v) v)
 }
 
-# Chart metadata for think-cell export wiring.
-EXAMPLE_CHART_TYPE <- "stacked_bar"
-EXAMPLE_CATEGORY_COL <- "quarter"
-EXAMPLE_SERIES_COL <- "product"
-EXAMPLE_VALUE_COL <- "revenue"
+ATC_KLASSE_CHOICES <- setNames(ATC_KLASSE_COLS, vapply(ATC_KLASSE_COLS, pharm_pretty, character(1), scope = "klasse"))
+ATC_POLY_CHOICES   <- setNames(ATC_POLY_COLS, vapply(ATC_POLY_COLS, pharm_pretty, character(1), scope = "klasse"))
+DIAGNOSEGROEP_CHOICES <- setNames(
+  DIAGNOSEGROEP_COLS,
+  vapply(DIAGNOSEGROEP_COLS, pharm_pretty, character(1), scope = "diagnosegroep")
+)
+DIAGNOSEGROEP_DEFAULT <- c("depr_stemming_stoornis", "angststoornis", "persoonlijkheidstoornis", "middelger_versl_stoornis")
+SG_GROEP_CHOICES <- setNames(SG_GROEP_COLS, vapply(SG_GROEP_COLS, pharm_pretty, character(1), scope = "sg_groep"))
 
 ui <- fluidPage(
   if (is_auth_enabled()) auth_ui_head(),
   tc_tab_color_theme(ahti_branding),
-  titlePanel("Dashboard template"),
+  titlePanel("Psychofarmacagebruik en GGZ-zorggebruik — ahti dashboard"),
+  p(
+    "Dit dashboard toont resultaten van iteratie 0 van het onderzoek van ",
+    "het Amsterdam health & technology institute (ahti) naar medicatiegebruik ",
+    "en GGZ-zorggebruik bij psychische aandoeningen, op basis van CBS-microdata. ",
+    "Alle cijfers zijn geaggregeerd en niet tot personen herleidbaar."
+  ),
   tabsetPanel(
+    id = "main_tabs",
     tabPanel(
-      "Example chart",
-      fluidRow(
-        column(
-          width = 12,
-          h3("Example chart"),
-          p(
-            "This example shows the download pattern: raw plot data, think-cell ",
-            "formatted data, and (when a matching template exists) a PowerPoint ",
-            "slide + table + log as one ZIP. Star a chart to add it to Favorites."
-          ),
-          plotOutput("example_chart"),
+      "Medicatiegebruik (ATC)",
+      tabsetPanel(
+        id = "atc_subtabs",
+        tabPanel(
+          "Prevalentie per klasse",
           br(),
-          chart_data_downloads_ui("example_downloads", chart_type = EXAMPLE_CHART_TYPE)
+          sidebarLayout(
+            sidebarPanel(
+              selectInput("atc_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              radioButtons(
+                "atc_metric_group", "Indicator",
+                choices = c("Medicatieklasse (ATC)" = "atc", "Mono-/polyfarmacie" = "poly")
+              ),
+              uiOutput("atc_klasse_picker"),
+              helpText(
+                "Prevalentie van gebruik van psychofarmaca (N05A-N06D) per 1.000 personen, ",
+                "en van mono- versus polyfarmacie (gelijktijdig gebruik van 1, 2, 3 of 4+ klassen)."
+              )
+            ),
+            mainPanel(
+              plotOutput("atc_plot"),
+              br(),
+              chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar")
+            )
+          )
+        ),
+        tabPanel(
+          "Meest voorkomende combinaties",
+          br(),
+          sidebarLayout(
+            sidebarPanel(
+              sliderInput("combi_top_n", "Aantal combinaties", min = 5, max = 30, value = 15, step = 1),
+              helpText(
+                "Combinaties van medicatieklassen die dezelfde persoon in hetzelfde jaar ",
+                "gelijktijdig gebruikte, aflopend gesorteerd op aantal personen."
+              )
+            ),
+            mainPanel(
+              plotOutput("combi_plot", height = "550px"),
+              br(),
+              chart_data_downloads_ui("atc_combi_dl", chart_type = "bar")
+            )
+          )
+        )
+      )
+    ),
+    tabPanel(
+      "GGZ zorggebruik & kosten",
+      br(),
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("ggz_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+          radioButtons(
+            "ggz_metric", "Maatstaf",
+            choices = c(
+              "Totale kosten (mln euro)" = "totale_kosten",
+              "Aantal gebruikers" = "gebruikers",
+              "Gemiddelde kosten per gebruiker (euro)" = "gem_kosten_per_gebr"
+            )
+          ),
+          helpText(
+            "Basis-GGZ, specialistische GGZ (ambulant) en specialistische GGZ (met verblijf), ",
+            "op basis van GGZ ZPM-prestatiedata 2024."
+          )
+        ),
+        mainPanel(
+          plotOutput("ggz_plot"),
+          br(),
+          chart_data_downloads_ui("ggz_kosten_dl", chart_type = "grouped_bar")
+        )
+      )
+    ),
+    tabPanel(
+      "Prevalentie psychische aandoeningen",
+      tabsetPanel(
+        id = "prev_subtabs",
+        tabPanel(
+          "Alle diagnosegroepen (2016–2024)",
+          br(),
+          sidebarLayout(
+            sidebarPanel(
+              selectInput("prev_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              conditionalPanel(
+                "input.prev_dim == 'totaal'",
+                checkboxGroupInput(
+                  "prev_diagnoses", "Diagnosegroep(en)",
+                  choices = DIAGNOSEGROEP_CHOICES, selected = DIAGNOSEGROEP_DEFAULT
+                )
+              ),
+              conditionalPanel(
+                "input.prev_dim != 'totaal'",
+                selectInput("prev_diagnose_single", "Diagnosegroep", choices = DIAGNOSEGROEP_CHOICES)
+              ),
+              helpText(
+                "Let op: vanaf 2022 is de onderliggende registratie omgezet van Vektis-declaraties ",
+                "naar GGZ ZPM-prestaties. Dit kan een trendbreuk geven, vooral in de categorie ",
+                "'onbekend / geen diagnose geregistreerd'."
+              )
+            ),
+            mainPanel(
+              plotOutput("prev_plot"),
+              br(),
+              chart_data_downloads_ui("prev_diag_dl", chart_type = "line")
+            )
+          )
+        ),
+        tabPanel(
+          "Angststoornis naar subgroep (2022–2024)",
+          br(),
+          sidebarLayout(
+            sidebarPanel(
+              selectInput("angst_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              conditionalPanel(
+                "input.angst_dim != 'totaal'",
+                selectInput("angst_sg", "Subgroep angststoornis", choices = SG_GROEP_CHOICES)
+              ),
+              helpText(
+                "SG5, SG6 en SG7 zijn de drie ZPM-subdiagnosegroepen waaruit de diagnosegroep ",
+                "'angststoornis' is opgebouwd. Een klinische omschrijving per subgroep was niet ",
+                "beschikbaar in de brondata; alleen 2022-2024 (ZPM-periode) is uitgesplitst."
+              )
+            ),
+            mainPanel(
+              plotOutput("angst_plot"),
+              br(),
+              chart_data_downloads_ui("angst_dl", chart_type = "grouped_bar")
+            )
+          )
         )
       )
     ),
@@ -93,73 +230,330 @@ server <- function(input, output, session) {
     show_app_without_auth(session)
   }
 
-  # Placeholder wiring for load_project_data() (a no-op stub above) -- a real
-  # dashboard replaces both with its actual data loading and drops the
-  # invisible(data) return at the bottom of this function once that data is
-  # actually used by real reactives instead of just being held onto.
-  data <- load_project_data()
+  tc_register_app_context(
+    input = input,
+    dashboard_title = DASHBOARD_TITLE,
+    nav_id = "main_tabs",
+    subtab_by_tab = c(
+      "Medicatiegebruik (ATC)" = "atc_subtabs",
+      "Prevalentie psychische aandoeningen" = "prev_subtabs"
+    ),
+    dl_option_prefixes = c(
+      "atc_prevalentie_dl" = "^atc_",
+      "atc_combi_dl" = "^combi_",
+      "ggz_kosten_dl" = "^ggz_",
+      "prev_diag_dl" = "^prev_",
+      "angst_dl" = "^angst_"
+    )
+  )
 
-  # Raw data, exactly as the underlying source provides it -- fed to
-  # chart_data_downloads_server() below, which applies dictionary_relabel()
-  # to its own copy for downloads, gated by that module's own "Format from
-  # dictionary" checkbox (see utils/chart_downloads.R). The chart itself
-  # always renders dictionary-formatted labels (see plot_data_pretty below),
-  # independent of that checkbox.
-  plot_data <- reactive({
-    example_revenue_data()
+  ## -- Medicatiegebruik (ATC): prevalentie per klasse ------------------------
+
+  output$atc_klasse_picker <- renderUI({
+    choices <- if (identical(input$atc_metric_group, "poly")) ATC_POLY_CHOICES else ATC_KLASSE_CHOICES
+    checkboxGroupInput("atc_klassen", "Selecteer klasse(n)", choices = choices, selected = choices)
   })
 
-  plot_data_pretty <- reactive({
-    plot_data() %>%
-      mutate(
-        !!EXAMPLE_CATEGORY_COL := dictionary_relabel(.data[[EXAMPLE_CATEGORY_COL]], scope = EXAMPLE_CATEGORY_COL),
-        !!EXAMPLE_SERIES_COL := dictionary_relabel(.data[[EXAMPLE_SERIES_COL]], scope = EXAMPLE_SERIES_COL)
-      )
+  atc_subgroep_scope <- reactive({
+    DIM_SCOPE_MAP[[input$atc_dim]]
   })
 
-  output$example_chart <- renderPlot({
-    plot_data_pretty() %>%
-      ggplot(aes(
-        x = .data[[EXAMPLE_CATEGORY_COL]],
-        y = .data[[EXAMPLE_VALUE_COL]],
-        fill = .data[[EXAMPLE_SERIES_COL]]
-      )) +
-      geom_col(position = "stack") +
-      scale_fill_manual(values = ahti_branding$scale_discrete) +
+  atc_title <- reactive({
+    metric_label <- if (identical(input$atc_metric_group, "poly")) "mono-/polyfarmacie" else "medicatieklasse"
+    paste0("Prevalentie van gebruik naar ", metric_label, " — ", pharm_dim_label(input$atc_dim))
+  })
+
+  atc_data_raw <- reactive({
+    req(input$atc_klassen)
+    df <- ATC_PREVALENTIE_DATA[
+      ATC_PREVALENTIE_DATA$dim == input$atc_dim &
+        ATC_PREVALENTIE_DATA$metric_group == input$atc_metric_group &
+        ATC_PREVALENTIE_DATA$klasse %in% input$atc_klassen,
+    ]
+    klasse_levels <- if (identical(input$atc_metric_group, "poly")) ATC_POLY_COLS else ATC_KLASSE_COLS
+    df$klasse <- factor(df$klasse, levels = base::intersect(klasse_levels, unique(df$klasse)))
+    leeftijd_order <- if (identical(input$atc_dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
+    df$subgroep <- pharm_order_subgroep(df$subgroep, input$atc_dim, leeftijd_order)
+    df
+  })
+
+  atc_plot_data <- reactive({
+    df <- atc_data_raw()
+    df$klasse <- pharm_relabel_factor(df$klasse, scope = "klasse")
+    df$subgroep <- pharm_relabel_factor(df$subgroep, scope = atc_subgroep_scope())
+    df
+  })
+
+  output$atc_plot <- renderPlot({
+    df <- atc_plot_data()
+    ggplot(df, aes(x = subgroep, y = prevalentie, fill = klasse)) +
+      geom_col(position = "dodge") +
+      scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$klasse)), levels(df$klasse))) +
       labs(
-        title = "Revenue by quarter",
-        x = "Quarter",
-        y = "Revenue",
-        fill = "Product"
+        title = atc_title(), x = pharm_dim_label(input$atc_dim),
+        y = "Prevalentie per 1.000 personen", fill = NULL
       ) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  chart_data_downloads_server(
+    id = "atc_prevalentie_dl",
+    data = atc_data_raw,
+    chart_type = "grouped_bar",
+    category_col = "subgroep",
+    series_col = "klasse",
+    value_col = "prevalentie",
+    filename_prefix = "atc_prevalentie",
+    agg_fun = NULL,
+    category_scope = atc_subgroep_scope,
+    series_scope = "klasse",
+    figure_title = atc_title,
+    source_output = "iteration0_atc.xlsx",
+    source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
+  )
+
+  ## -- Medicatiegebruik (ATC): meest voorkomende combinaties -----------------
+
+  combi_title <- reactive({
+    paste0("Top ", input$combi_top_n, " meest voorkomende combinaties van medicatieklassen")
+  })
+
+  combi_data_raw <- reactive({
+    df <- utils::head(ATC_COMBINATIES_DATA, input$combi_top_n)
+    df$combi <- factor(df$combi, levels = rev(df$combi))
+    df$serie <- "Aantal personen"
+    df
+  })
+
+  combi_plot_data <- reactive({
+    df <- combi_data_raw()
+    levels_raw <- levels(df$combi)
+    pretty_levels <- vapply(strsplit(levels_raw, "_"), function(codes) {
+      paste(pharm_relabel_factor(codes, scope = "klasse"), collapse = " + ")
+    }, character(1))
+    df$combi_label <- factor(as.character(df$combi), levels = levels_raw, labels = pretty_levels)
+    df
+  })
+
+  output$combi_plot <- renderPlot({
+    df <- combi_plot_data()
+    ggplot(df, aes(x = combi_label, y = N)) +
+      geom_col(fill = ahti_branding$colors$helder_blauw) +
+      coord_flip() +
+      labs(title = combi_title(), x = NULL, y = "Aantal personen") +
       theme_minimal()
   })
 
   chart_data_downloads_server(
-    id = "example_downloads",
-    data = plot_data,
-    chart_type = EXAMPLE_CHART_TYPE,
-    category_col = EXAMPLE_CATEGORY_COL,
-    series_col = EXAMPLE_SERIES_COL,
-    value_col = EXAMPLE_VALUE_COL,
-    filename_prefix = "revenue_chart",
+    id = "atc_combi_dl",
+    data = combi_data_raw,
+    chart_type = "bar",
+    category_col = "combi",
+    series_col = "serie",
+    value_col = "N",
+    filename_prefix = "atc_combinaties",
     agg_fun = NULL,
-    # Data-source provenance: the file the chart data came from and its
-    # last-edited date. Stamped into every export's A1 corner-cell log and
-    # shown as the "Source data updated" line in the download panel. A real
-    # dashboard points these at its actual source workbook/sheet (see
-    # tc_format_source_mtime() and CLAUDE.md's source_output/source_sheet
-    # convention); omit both for a chart with no external source file.
-    source_output = basename(EXAMPLE_DATA_FILE),
-    source_mtime = tc_format_source_mtime(EXAMPLE_DATA_FILE)
+    series_scope = "combi_serie",
+    figure_title = combi_title,
+    source_output = "iteration0_atc.xlsx",
+    source_sheet = "ATC_combinaties",
+    source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
+  )
+
+  ## -- GGZ zorggebruik & kosten ----------------------------------------------
+
+  ggz_subgroep_scope <- reactive({
+    DIM_SCOPE_MAP[[input$ggz_dim]]
+  })
+
+  ggz_title <- reactive({
+    metric_label <- switch(
+      input$ggz_metric,
+      totale_kosten = "Totale zorgkosten (mln euro)",
+      gebruikers = "Aantal gebruikers",
+      gem_kosten_per_gebr = "Gemiddelde kosten per gebruiker (euro)"
+    )
+    paste0(metric_label, " naar GGZ-categorie — ", pharm_dim_label(input$ggz_dim))
+  })
+
+  ggz_data_raw <- reactive({
+    df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == input$ggz_dim, ]
+    df$categorie <- factor(df$categorie, levels = GGZ_CATEGORIE_ORDER)
+    df$subgroep <- pharm_order_subgroep(df$subgroep, input$ggz_dim, LEEFTIJD_ORDER_17PLUS)
+    df$waarde <- if (identical(input$ggz_metric, "totale_kosten")) {
+      df$totale_kosten / 1e6
+    } else {
+      df[[input$ggz_metric]]
+    }
+    df
+  })
+
+  ggz_plot_data <- reactive({
+    df <- ggz_data_raw()
+    df$categorie <- pharm_relabel_factor(df$categorie, scope = "categorie")
+    df$subgroep <- pharm_relabel_factor(df$subgroep, scope = ggz_subgroep_scope())
+    df
+  })
+
+  output$ggz_plot <- renderPlot({
+    df <- ggz_plot_data()
+    ggplot(df, aes(x = subgroep, y = waarde, fill = categorie)) +
+      geom_col(position = "dodge") +
+      scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$categorie)), levels(df$categorie))) +
+      labs(title = ggz_title(), x = pharm_dim_label(input$ggz_dim), y = NULL, fill = NULL) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  chart_data_downloads_server(
+    id = "ggz_kosten_dl",
+    data = ggz_data_raw,
+    chart_type = "grouped_bar",
+    category_col = "subgroep",
+    series_col = "categorie",
+    value_col = "waarde",
+    filename_prefix = "ggz_kosten",
+    agg_fun = NULL,
+    category_scope = ggz_subgroep_scope,
+    series_scope = "categorie",
+    figure_title = ggz_title,
+    source_output = "iteration0_ggz.xlsx",
+    source_mtime = tc_format_source_mtime(PHARM_GGZ_FILE)
+  )
+
+  ## -- Prevalentie psychische aandoeningen: alle diagnosegroepen -------------
+
+  prev_groep_scope <- reactive({
+    if (identical(input$prev_dim, "totaal")) return("diagnosegroep")
+    DIM_SCOPE_MAP[[input$prev_dim]]
+  })
+
+  prev_title <- reactive({
+    if (identical(input$prev_dim, "totaal")) {
+      "Prevalentie van diagnosegroepen (per 1.000 personen), 2016–2024"
+    } else {
+      diag_label <- pharm_pretty(input$prev_diagnose_single, scope = "diagnosegroep")
+      paste0(
+        "Prevalentie van '", diag_label, "' (per 1.000 personen) naar ",
+        pharm_dim_label(input$prev_dim), ", 2016–2024"
+      )
+    }
+  })
+
+  prev_data_raw <- reactive({
+    df <- PREV_DIAGNOSE_DATA[PREV_DIAGNOSE_DATA$dim == input$prev_dim, ]
+    if (identical(input$prev_dim, "totaal")) {
+      req(input$prev_diagnoses)
+      df <- df[df$diagnosegroep %in% input$prev_diagnoses, ]
+      df$groep <- factor(df$diagnosegroep, levels = base::intersect(DIAGNOSEGROEP_COLS, unique(df$diagnosegroep)))
+    } else {
+      req(input$prev_diagnose_single)
+      df <- df[df$diagnosegroep == input$prev_diagnose_single, ]
+      df$groep <- pharm_order_subgroep(df$subgroep, input$prev_dim, LEEFTIJD_ORDER_17PLUS)
+    }
+    df$jaar <- as.integer(df$jaar)
+    df[, c("dim", "jaar", "groep", "prevalentie")]
+  })
+
+  prev_plot_data <- reactive({
+    df <- prev_data_raw()
+    df$groep <- pharm_relabel_factor(df$groep, scope = prev_groep_scope())
+    df
+  })
+
+  output$prev_plot <- renderPlot({
+    df <- prev_plot_data()
+    ggplot(df, aes(x = jaar, y = prevalentie, color = groep, group = groep)) +
+      geom_line(linewidth = 1) +
+      geom_point() +
+      scale_color_manual(values = setNames(pharm_fill_palette(nlevels(df$groep)), levels(df$groep))) +
+      labs(title = prev_title(), x = "Jaar", y = "Prevalentie per 1.000 personen", color = NULL) +
+      theme_minimal()
+  })
+
+  chart_data_downloads_server(
+    id = "prev_diag_dl",
+    data = prev_data_raw,
+    chart_type = "line",
+    category_col = "jaar",
+    series_col = "groep",
+    value_col = "prevalentie",
+    filename_prefix = "ggz_prevalentie_diagnosegroepen",
+    agg_fun = NULL,
+    category_scope = "jaar",
+    series_scope = prev_groep_scope,
+    figure_title = prev_title,
+    source_output = "prevalenties.xlsx",
+    source_mtime = tc_format_source_mtime(PHARM_PREV_FILE)
+  )
+
+  ## -- Prevalentie psychische aandoeningen: angststoornis naar subgroep -----
+
+  angst_groep_scope <- reactive({
+    if (identical(input$angst_dim, "totaal")) return("sg_groep")
+    DIM_SCOPE_MAP[[input$angst_dim]]
+  })
+
+  angst_title <- reactive({
+    if (identical(input$angst_dim, "totaal")) {
+      "Prevalentie van angststoornis-subgroepen (per 1.000 personen), 2022–2024"
+    } else {
+      paste0(
+        "Prevalentie van subgroep ", input$angst_sg, " (per 1.000 personen) naar ",
+        pharm_dim_label(input$angst_dim), ", 2022–2024"
+      )
+    }
+  })
+
+  angst_data_raw <- reactive({
+    df <- ANGST_DATA[ANGST_DATA$dim == input$angst_dim, ]
+    if (identical(input$angst_dim, "totaal")) {
+      df$groep <- factor(df$sg_groep, levels = SG_GROEP_COLS)
+    } else {
+      req(input$angst_sg)
+      df <- df[df$sg_groep == input$angst_sg, ]
+      df$groep <- pharm_order_subgroep(df$subgroep, input$angst_dim, LEEFTIJD_ORDER_17PLUS)
+    }
+    df$jaar <- as.integer(df$jaar)
+    df[, c("dim", "jaar", "groep", "prevalentie")]
+  })
+
+  angst_plot_data <- reactive({
+    df <- angst_data_raw()
+    df$groep <- pharm_relabel_factor(df$groep, scope = angst_groep_scope())
+    df
+  })
+
+  output$angst_plot <- renderPlot({
+    df <- angst_plot_data()
+    ggplot(df, aes(x = factor(jaar), y = prevalentie, fill = groep)) +
+      geom_col(position = "dodge") +
+      scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$groep)), levels(df$groep))) +
+      labs(title = angst_title(), x = "Jaar", y = "Prevalentie per 1.000 personen", fill = NULL) +
+      theme_minimal()
+  })
+
+  chart_data_downloads_server(
+    id = "angst_dl",
+    data = angst_data_raw,
+    chart_type = "grouped_bar",
+    category_col = "jaar",
+    series_col = "groep",
+    value_col = "prevalentie",
+    filename_prefix = "angststoornis_subgroepen",
+    agg_fun = NULL,
+    category_scope = "jaar",
+    series_scope = angst_groep_scope,
+    figure_title = angst_title,
+    source_output = "prevalenties_angst_22_24.xlsx",
+    source_mtime = tc_format_source_mtime(PHARM_ANGST_FILE)
   )
 
   favorites_panel_server("favorites")
   export_history_panel_server("export_history")
   template_admin_server("template_admin")
   dictionary_admin_server("dictionary")
-
-  invisible(data)
 }
 
 if (is_auth_enabled()) {
