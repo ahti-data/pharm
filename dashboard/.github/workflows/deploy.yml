@@ -1,0 +1,66 @@
+name: Deploy website via SFTP
+
+on:
+  push:
+    branches:
+      - main 
+
+jobs:
+  web-deploy:
+    name: 🎉 Deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: 🚚 Get latest code
+      uses: actions/checkout@v4
+
+    - name: 📦 Prepare deploy folder
+      run: |
+        mkdir -p deploy
+        cp app.R deploy/
+        cp -r data deploy/
+        cp -r utils deploy/
+        cp -r templates deploy/
+
+    - name: ⚙️ Load deployment config
+      shell: bash
+      run: |
+        if [ -f deploy.env ]; then
+          . ./deploy.env
+        fi
+
+        if [ -z "${APP_FOLDER:-}" ] || [ "$APP_FOLDER" = "NONE" ]; then
+          echo "Set APP_FOLDER in deploy.env to the dashboard folder name under /apps/."
+          exit 1
+        fi
+
+        echo "REMOTE_PATH=/apps/${APP_FOLDER}/" >> "$GITHUB_ENV"
+
+    - name: 📁 Ensure remote dashboard folder exists
+      shell: bash
+      env:
+        SFTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq sshpass
+
+        REMOTE_PATH="${{ env.REMOTE_PATH }}"
+        REMOTE_PATH="${REMOTE_PATH%/}"
+
+        sshpass -p "$SFTP_PASSWORD" ssh \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          -p 22 \
+          "${{ secrets.FTP_USERNAME }}@${{ secrets.FTP_SERVER }}" \
+          "mkdir -p '${REMOTE_PATH}'"
+
+    - name: 📂 Sync files via SFTP
+      uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+      with:
+        username: ${{ secrets.FTP_USERNAME }}
+        server: ${{ secrets.FTP_SERVER }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        port: 22
+        local_path: './deploy/*'
+        remote_path: ${{ env.REMOTE_PATH }}
+        sftp_only: true
+        delete_remote_files: false

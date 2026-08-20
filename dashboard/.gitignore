@@ -1,0 +1,16 @@
+/context/
+/temp/
+
+# testthat auto-extracts a standalone repro script for each failing test on
+# certain reporters; local-only debugging artifact, regenerated on any run
+# with failures.
+/tests/testthat/_problems/
+/tests/testthat/testthat-problems.rds
+
+# Personal, machine-specific local dev config (absolute paths); not shared.
+/.claude/launch.json
+
+# Runtime state — never committed; deploy workflow never syncs these either,
+# so local testing artifacts and uploaded content stay out of git either way.
+# (Uploaded templates live under state/template_uploads/.)
+/state/
