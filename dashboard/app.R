@@ -1,11 +1,21 @@
 # Dashboard: psychofarmacagebruik en GGZ-zorggebruik (iteratie 0)
 #
-# Toont resultaten van de pharm-pipeline (zie het repo-brede README.md):
-# medicatiegebruik (ATC), GGZ-zorggebruik en -kosten, en de prevalentie van
-# psychische diagnosegroepen, uitgesplitst naar SES-WOA, inkomensklasse,
-# opleidingsniveau en leeftijdsgroep. Alle cijfers zijn al geaggregeerd
-# binnen de beveiligde CBS Remote Access-omgeving -- dit dashboard leest
-# uitsluitend de niet-herleidbare Excel-outputs in data/.
+# Toont resultaten van de pharm-pipeline (zie het repo-brede README.md), in
+# vier tabbladen:
+#   1. Medicatiegebruik (ATC)            -- prevalentie van gebruik van
+#      psychofarmaca (antipsychotica, anxiolytica, hypnotica/sedativa,
+#      antidepressiva, ADHD-middelen, anti-dementiemiddelen) en van mono-/
+#      polyfarmacie, plus de meest voorkomende combinaties van klassen.
+#   2. GGZ zorggebruik & kosten          -- totale kosten, aantal gebruikers
+#      en gemiddelde kosten per gebruiker voor basis-GGZ en specialistische
+#      GGZ (met/zonder verblijf), jaar 2024.
+#   3. Prevalentie psychische aandoeningen -- prevalentie van 12 psychische
+#      diagnosegroepen per jaar (2016-2024), met een apart tabblad voor de
+#      uitsplitsing van angststoornis naar ZPM-subgroep (2022-2024).
+# Elk tabblad is uit te splitsen naar de totale bevolking of naar SES-WOA,
+# inkomensklasse, opleidingsniveau of leeftijdsgroep. Alle cijfers zijn al
+# geaggregeerd binnen de beveiligde CBS Remote Access-omgeving -- dit
+# dashboard leest uitsluitend de niet-herleidbare Excel-outputs in data/.
 
 source("data/metadata/brand_colors.R")
 source("utils/format_thinkcell_download.R")
