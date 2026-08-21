@@ -46,12 +46,19 @@ jobs:
         REMOTE_PATH="${{ env.REMOTE_PATH }}"
         REMOTE_PATH="${REMOTE_PATH%/}"
 
-        sshpass -p "$SFTP_PASSWORD" ssh \
+        # A plain `ssh ... "mkdir ..."` is a shell-exec session, which a
+        # chrooted/SFTP-only account rejects ("This service allows sftp
+        # connections only."). Use a real SFTP session instead; the leading
+        # "-" on mkdir tells sftp to ignore an error there (folder already
+        # exists) instead of aborting the whole batch.
+        printf '%s\n' "-mkdir ${REMOTE_PATH}" "bye" > /tmp/sftp_mkdir_batch.txt
+
+        sshpass -p "$SFTP_PASSWORD" sftp \
           -o StrictHostKeyChecking=no \
           -o UserKnownHostsFile=/dev/null \
-          -p 22 \
-          "${{ secrets.FTP_USERNAME }}@${{ secrets.FTP_SERVER }}" \
-          "mkdir -p '${REMOTE_PATH}'"
+          -P 22 \
+          -b /tmp/sftp_mkdir_batch.txt \
+          "${{ secrets.FTP_USERNAME }}@${{ secrets.FTP_SERVER }}"
 
     - name: 📂 Sync files via SFTP
       uses: wlixcc/SFTP-Deploy-Action@v1.2.4
