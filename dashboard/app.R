@@ -177,6 +177,7 @@ ui <- fluidPage(
                 "input.prev_dim != 'totaal'",
                 selectInput("prev_diagnose_single", "Diagnosegroep", choices = DIAGNOSEGROEP_CHOICES)
               ),
+              checkboxInput("prev_show_zpm_line", "Toon startjaar ZPM-prestatiemodel (2022)", value = TRUE),
               helpText(
                 "Let op: vanaf 2022 is de onderliggende registratie omgezet van Vektis-declaraties ",
                 "naar GGZ ZPM-prestaties. Dit kan een trendbreuk geven, vooral in de categorie ",
@@ -547,7 +548,18 @@ server <- function(input, output, session) {
 
   output$prev_plot <- renderPlot({
     df <- prev_plot_data()
-    ggplot(df, aes(x = jaar, y = prevalentie, color = groep, group = groep)) +
+    p <- ggplot(df, aes(x = jaar, y = prevalentie, color = groep, group = groep))
+    if (isTRUE(input$prev_show_zpm_line)) {
+      # Drawn before the data lines/points (added below) so it sits behind
+      # them as a background reference marker instead of obscuring the data.
+      p <- p +
+        geom_vline(xintercept = 2022, linetype = "dashed", color = ahti_branding$colors$midden_grijs) +
+        annotate(
+          "text", x = 2022, y = Inf, label = "Start ZPM-prestatiemodel (2022)",
+          hjust = -0.02, vjust = 1.5, size = 3, color = ahti_branding$colors$midden_grijs
+        )
+    }
+    p +
       geom_line(linewidth = 1) +
       geom_point() +
       scale_color_manual(values = setNames(pharm_fill_palette(nlevels(df$groep)), levels(df$groep))) +
