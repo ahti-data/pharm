@@ -260,6 +260,17 @@ server <- function(input, output, session) {
     )
   )
 
+  # Read one chart option. `sel` is a stored option set being replayed from a
+  # favorite or history entry (keyed by input id, exactly as tc_ctx_selections()
+  # captured it); NULL means "use the live input". Every chart's data/title/scope
+  # below goes through this, so the same code serves the on-screen figure and a
+  # rebuild of a favorite saved with different options -- see the `data_for`
+  # argument on chart_data_downloads_server().
+  opt <- function(sel, id) {
+    if (!is.null(sel) && !is.null(sel[[id]])) return(sel[[id]])
+    input[[id]]
+  }
+
   ## -- Medicatiegebruik (ATC): prevalentie per klasse ------------------------
 
   output$atc_klasse_picker <- renderUI({
@@ -267,28 +278,33 @@ server <- function(input, output, session) {
     checkboxGroupInput("atc_klassen", "Selecteer klasse(n)", choices = choices, selected = choices)
   })
 
-  atc_subgroep_scope <- reactive({
-    DIM_SCOPE_MAP[[input$atc_dim]]
-  })
+  atc_subgroep_scope <- function(sel = NULL) {
+    DIM_SCOPE_MAP[[opt(sel, "atc_dim")]]
+  }
 
-  atc_title <- reactive({
-    metric_label <- if (identical(input$atc_metric_group, "poly")) "mono-/polyfarmacie" else "medicatieklasse"
-    paste0("Prevalentie van gebruik naar ", metric_label, " — ", pharm_dim_label(input$atc_dim))
-  })
+  atc_title <- function(sel = NULL) {
+    metric_label <- if (identical(opt(sel, "atc_metric_group"), "poly")) "mono-/polyfarmacie" else "medicatieklasse"
+    paste0("Prevalentie van gebruik naar ", metric_label, " — ", pharm_dim_label(opt(sel, "atc_dim")))
+  }
 
-  atc_data_raw <- reactive({
-    req(input$atc_klassen)
+  atc_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "atc_dim")
+    metric_group <- opt(sel, "atc_metric_group")
+    klassen <- opt(sel, "atc_klassen")
+    req(klassen)
     df <- ATC_PREVALENTIE_DATA[
-      ATC_PREVALENTIE_DATA$dim == input$atc_dim &
-        ATC_PREVALENTIE_DATA$metric_group == input$atc_metric_group &
-        ATC_PREVALENTIE_DATA$klasse %in% input$atc_klassen,
+      ATC_PREVALENTIE_DATA$dim == dim &
+        ATC_PREVALENTIE_DATA$metric_group == metric_group &
+        ATC_PREVALENTIE_DATA$klasse %in% klassen,
     ]
-    klasse_levels <- if (identical(input$atc_metric_group, "poly")) ATC_POLY_COLS else ATC_KLASSE_COLS
+    klasse_levels <- if (identical(metric_group, "poly")) ATC_POLY_COLS else ATC_KLASSE_COLS
     df$klasse <- factor(df$klasse, levels = base::intersect(klasse_levels, unique(df$klasse)))
-    leeftijd_order <- if (identical(input$atc_dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
-    df$subgroep <- pharm_order_subgroep(df$subgroep, input$atc_dim, leeftijd_order)
+    leeftijd_order <- if (identical(dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
+    df$subgroep <- pharm_order_subgroep(df$subgroep, dim, leeftijd_order)
     df
-  })
+  }
+
+  atc_data_raw <- reactive(atc_data_for(NULL))
 
   atc_plot_data <- reactive({
     df <- atc_data_raw()
@@ -333,22 +349,25 @@ server <- function(input, output, session) {
     category_scope = atc_subgroep_scope,
     series_scope = "klasse",
     figure_title = atc_title,
+    data_for = atc_data_for,
     source_output = "iteration0_atc.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
   )
 
   ## -- Medicatiegebruik (ATC): meest voorkomende combinaties -----------------
 
-  combi_title <- reactive({
-    paste0("Top ", input$combi_top_n, " meest voorkomende combinaties van medicatieklassen")
-  })
+  combi_title <- function(sel = NULL) {
+    paste0("Top ", opt(sel, "combi_top_n"), " meest voorkomende combinaties van medicatieklassen")
+  }
 
-  combi_data_raw <- reactive({
-    df <- utils::head(ATC_COMBINATIES_DATA, input$combi_top_n)
+  combi_data_for <- function(sel = NULL) {
+    df <- utils::head(ATC_COMBINATIES_DATA, opt(sel, "combi_top_n"))
     df$combi <- factor(df$combi, levels = rev(df$combi))
     df$serie <- "Aantal personen"
     df
-  })
+  }
+
+  combi_data_raw <- reactive(combi_data_for(NULL))
 
   combi_plot_data <- reactive({
     df <- combi_data_raw()
@@ -390,6 +409,7 @@ server <- function(input, output, session) {
     agg_fun = NULL,
     series_scope = "combi_serie",
     figure_title = combi_title,
+    data_for = combi_data_for,
     source_output = "iteration0_atc.xlsx",
     source_sheet = "ATC_combinaties",
     source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
@@ -397,37 +417,41 @@ server <- function(input, output, session) {
 
   ## -- GGZ zorggebruik & kosten ----------------------------------------------
 
-  ggz_subgroep_scope <- reactive({
-    DIM_SCOPE_MAP[[input$ggz_dim]]
-  })
+  ggz_subgroep_scope <- function(sel = NULL) {
+    DIM_SCOPE_MAP[[opt(sel, "ggz_dim")]]
+  }
 
-  ggz_metric_label <- reactive({
+  ggz_metric_label <- function(sel = NULL) {
     switch(
-      input$ggz_metric,
+      opt(sel, "ggz_metric"),
       totale_kosten = "Totale zorgkosten (mln euro)",
       gebruikers = "Aantal gebruikers",
       gem_kosten_per_gebr = "Gemiddelde kosten per gebruiker (euro)",
       prevalentie = "Prevalentie per 1.000 personen (17+)"
     )
-  })
+  }
 
-  ggz_title <- reactive({
-    paste0(ggz_metric_label(), " naar GGZ-categorie — ", pharm_dim_label(input$ggz_dim))
-  })
+  ggz_title <- function(sel = NULL) {
+    paste0(ggz_metric_label(sel), " naar GGZ-categorie — ", pharm_dim_label(opt(sel, "ggz_dim")))
+  }
 
-  ggz_data_raw <- reactive({
-    df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == input$ggz_dim, ]
+  ggz_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "ggz_dim")
+    metric <- opt(sel, "ggz_metric")
+    df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == dim, ]
     df$categorie <- factor(df$categorie, levels = GGZ_CATEGORIE_ORDER)
-    df$subgroep <- pharm_order_subgroep(df$subgroep, input$ggz_dim, LEEFTIJD_ORDER_17PLUS)
-    df$waarde <- if (identical(input$ggz_metric, "totale_kosten")) {
+    df$subgroep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
+    df$waarde <- if (identical(metric, "totale_kosten")) {
       df$totale_kosten / 1e6
-    } else if (identical(input$ggz_metric, "prevalentie")) {
+    } else if (identical(metric, "prevalentie")) {
       df$gebruikers / df$n_17plus * 1000
     } else {
-      df[[input$ggz_metric]]
+      df[[metric]]
     }
     df
-  })
+  }
+
+  ggz_data_raw <- reactive(ggz_data_for(NULL))
 
   ggz_plot_data <- reactive({
     df <- ggz_data_raw()
@@ -471,43 +495,49 @@ server <- function(input, output, session) {
     category_scope = ggz_subgroep_scope,
     series_scope = "categorie",
     figure_title = ggz_title,
+    data_for = ggz_data_for,
     source_output = "iteration0_ggz.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_GGZ_FILE)
   )
 
   ## -- Prevalentie psychische aandoeningen: alle diagnosegroepen -------------
 
-  prev_groep_scope <- reactive({
-    if (identical(input$prev_dim, "totaal")) return("diagnosegroep")
-    DIM_SCOPE_MAP[[input$prev_dim]]
-  })
+  prev_groep_scope <- function(sel = NULL) {
+    if (identical(opt(sel, "prev_dim"), "totaal")) return("diagnosegroep")
+    DIM_SCOPE_MAP[[opt(sel, "prev_dim")]]
+  }
 
-  prev_title <- reactive({
-    if (identical(input$prev_dim, "totaal")) {
+  prev_title <- function(sel = NULL) {
+    if (identical(opt(sel, "prev_dim"), "totaal")) {
       "Prevalentie van diagnosegroepen (per 1.000 personen), 2016–2024"
     } else {
-      diag_label <- pharm_pretty(input$prev_diagnose_single, scope = "diagnosegroep")
+      diag_label <- pharm_pretty(opt(sel, "prev_diagnose_single"), scope = "diagnosegroep")
       paste0(
         "Prevalentie van '", diag_label, "' (per 1.000 personen) naar ",
-        pharm_dim_label(input$prev_dim), ", 2016–2024"
+        pharm_dim_label(opt(sel, "prev_dim")), ", 2016–2024"
       )
     }
-  })
+  }
 
-  prev_data_raw <- reactive({
-    df <- PREV_DIAGNOSE_DATA[PREV_DIAGNOSE_DATA$dim == input$prev_dim, ]
-    if (identical(input$prev_dim, "totaal")) {
-      req(input$prev_diagnoses)
-      df <- df[df$diagnosegroep %in% input$prev_diagnoses, ]
+  prev_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "prev_dim")
+    df <- PREV_DIAGNOSE_DATA[PREV_DIAGNOSE_DATA$dim == dim, ]
+    if (identical(dim, "totaal")) {
+      diagnoses <- opt(sel, "prev_diagnoses")
+      req(diagnoses)
+      df <- df[df$diagnosegroep %in% diagnoses, ]
       df$groep <- factor(df$diagnosegroep, levels = base::intersect(DIAGNOSEGROEP_COLS, unique(df$diagnosegroep)))
     } else {
-      req(input$prev_diagnose_single)
-      df <- df[df$diagnosegroep == input$prev_diagnose_single, ]
-      df$groep <- pharm_order_subgroep(df$subgroep, input$prev_dim, LEEFTIJD_ORDER_17PLUS)
+      diagnose_single <- opt(sel, "prev_diagnose_single")
+      req(diagnose_single)
+      df <- df[df$diagnosegroep == diagnose_single, ]
+      df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
     df[, c("dim", "jaar", "groep", "prevalentie")]
-  })
+  }
+
+  prev_data_raw <- reactive(prev_data_for(NULL))
 
   prev_plot_data <- reactive({
     df <- prev_data_raw()
@@ -549,40 +579,45 @@ server <- function(input, output, session) {
     category_scope = "jaar",
     series_scope = prev_groep_scope,
     figure_title = prev_title,
+    data_for = prev_data_for,
     source_output = "prevalenties.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_PREV_FILE)
   )
 
   ## -- Prevalentie psychische aandoeningen: angststoornis naar subgroep -----
 
-  angst_groep_scope <- reactive({
-    if (identical(input$angst_dim, "totaal")) return("sg_groep")
-    DIM_SCOPE_MAP[[input$angst_dim]]
-  })
+  angst_groep_scope <- function(sel = NULL) {
+    if (identical(opt(sel, "angst_dim"), "totaal")) return("sg_groep")
+    DIM_SCOPE_MAP[[opt(sel, "angst_dim")]]
+  }
 
-  angst_title <- reactive({
-    if (identical(input$angst_dim, "totaal")) {
+  angst_title <- function(sel = NULL) {
+    if (identical(opt(sel, "angst_dim"), "totaal")) {
       "Prevalentie van angststoornis-subgroepen (per 1.000 personen), 2022–2024"
     } else {
       paste0(
-        "Prevalentie van subgroep ", input$angst_sg, " (per 1.000 personen) naar ",
-        pharm_dim_label(input$angst_dim), ", 2022–2024"
+        "Prevalentie van subgroep ", opt(sel, "angst_sg"), " (per 1.000 personen) naar ",
+        pharm_dim_label(opt(sel, "angst_dim")), ", 2022–2024"
       )
     }
-  })
+  }
 
-  angst_data_raw <- reactive({
-    df <- ANGST_DATA[ANGST_DATA$dim == input$angst_dim, ]
-    if (identical(input$angst_dim, "totaal")) {
+  angst_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "angst_dim")
+    df <- ANGST_DATA[ANGST_DATA$dim == dim, ]
+    if (identical(dim, "totaal")) {
       df$groep <- factor(df$sg_groep, levels = SG_GROEP_COLS)
     } else {
-      req(input$angst_sg)
-      df <- df[df$sg_groep == input$angst_sg, ]
-      df$groep <- pharm_order_subgroep(df$subgroep, input$angst_dim, LEEFTIJD_ORDER_17PLUS)
+      sg <- opt(sel, "angst_sg")
+      req(sg)
+      df <- df[df$sg_groep == sg, ]
+      df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
     df[, c("dim", "jaar", "groep", "prevalentie")]
-  })
+  }
+
+  angst_data_raw <- reactive(angst_data_for(NULL))
 
   angst_plot_data <- reactive({
     df <- angst_data_raw()
@@ -622,6 +657,7 @@ server <- function(input, output, session) {
     category_scope = "jaar",
     series_scope = angst_groep_scope,
     figure_title = angst_title,
+    data_for = angst_data_for,
     source_output = "prevalenties_angst_22_24.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_ANGST_FILE)
   )

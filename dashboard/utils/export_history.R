@@ -286,6 +286,22 @@ export_history_redownload <- function(entry, zip_path, templates_dir = NULL, ppt
 # was pasted in.
 # ---------------------------------------------------------------------------
 
+#' The option set a regenerate should rebuild this entry against: the entry's
+#' own stored `selections`, so "regenerate" means *today's data, this entry's
+#' figure* -- not today's data with whatever options the chart's inputs happen
+#' to show in the regenerating session. `NULL` (meaning "use live inputs") only
+#' for an entry saved without any, e.g. logged before this was recorded.
+#'
+#' A chart that can't honor a replay (no `data_for()` -- see
+#' `chart_data_downloads_server()`) falls back to live inputs and reports the
+#' live selections, so a regenerated entry never claims options it didn't use.
+#' @param entry A history entry (as returned by [export_history_list()]).
+#' @return Named list of option values, or `NULL`.
+export_history_replay_selections <- function(entry) {
+  if (length(entry$selections) == 0) return(NULL)
+  entry$selections
+}
+
 #' Copy one entry's stored PNG snapshot to a new entry's asset path, if it
 #' exists. Used when a regenerate mints a fresh id but has no *new* capture
 #' to use for it (module not live this session, or the capture round found
@@ -320,8 +336,16 @@ export_history_regenerate_entry <- function(entry, zip_path, session,
     } else {
       tc_read_asset_as_data_uri(export_history_asset_path(entry$id))
     }
+    # Regenerate = today's data, but THIS entry's own stored options -- not
+    # whatever the chart's inputs currently show (see
+    # favorites_live_spec_or_null() for the same reasoning).
+    sel <- export_history_replay_selections(entry)
     ok <- tryCatch({
-      reg$build_zip(zip_path, captured_image = image_to_use)
+      if (is.null(sel) || !tc_accepts_selections(reg$build_zip)) {
+        reg$build_zip(zip_path, captured_image = image_to_use)
+      } else {
+        reg$build_zip(zip_path, captured_image = image_to_use, selections = sel)
+      }
       TRUE
     }, error = function(e) FALSE)
     if (ok) return(invisible(list(live = TRUE)))
@@ -353,7 +377,8 @@ export_history_prepare_regenerate_spec <- function(entry, session, favorite_down
   reg <- tc_chart_registry_get(session, tc_or(entry$module_id, ""))
   live_spec <- NULL
   if (!is.null(reg)) {
-    live_spec <- tryCatch(reg$get_spec(), error = function(e) NULL)
+    live_spec <- tryCatch(tc_registry_spec(reg, export_history_replay_selections(entry)),
+                          error = function(e) NULL)
     if (!is.null(live_spec) && isTRUE(live_spec$is_faceted)) live_spec <- NULL
   }
 
@@ -606,7 +631,8 @@ export_history_regenerate_excel_one <- function(entry, session, templates_dir = 
   reg <- tc_chart_registry_get(session, tc_or(entry$module_id, ""))
   live_spec <- NULL
   if (!is.null(reg)) {
-    live_spec <- tryCatch(reg$get_spec(), error = function(e) NULL)
+    live_spec <- tryCatch(tc_registry_spec(reg, export_history_replay_selections(entry)),
+                          error = function(e) NULL)
     if (!is.null(live_spec) && isTRUE(live_spec$is_faceted)) live_spec <- NULL
   }
 

@@ -284,6 +284,27 @@ chart_data_downloads_ui <- function(
 #'   `dictionary_relabel()` to `category_col`/`series_col` (see the
 #'   "Format from dictionary" checkbox below) -- every download this module
 #'   builds reads that wrapped version, never this raw argument directly.
+#' @param data_for Optional `function(selections)` returning this chart's data
+#'   frame for an *explicit* set of option values, instead of whatever the live
+#'   inputs currently hold. `selections` is a named list keyed by real input id
+#'   (exactly what [tc_ctx_selections()] captures and what a favorite/history
+#'   entry stores); `NULL` means "use the live inputs", so
+#'   `data_for(NULL)` must equal `data()`'s own source.
+#'
+#'   **Wire this for every chart whose data depends on user options.** Without
+#'   it, a favorite or history entry can only ever be rebuilt against the
+#'   session's *current* input state, so two favorites of the same chart saved
+#'   with different options silently download identical data (see
+#'   `favorites_prepare_live_spec()`). When a replay is requested and this is
+#'   missing, the rebuild falls back to live inputs, logs the *live* selections
+#'   (never the stored ones it couldn't honor), and warns -- it never claims
+#'   provenance it didn't reproduce. `tc_assert_replayable()` turns that
+#'   silent-fallback risk into an explicit, testable check.
+#'
+#'   `figure_title`/`slide_title`/`category_scope`/`series_scope`/`source_*` may
+#'   each likewise be a one-argument `function(selections)` to stay consistent
+#'   with a replayed selection set; a plain value or zero-argument
+#'   reactive/function keeps its existing live-only behaviour.
 #' @param chart_type think-cell chart type. The think-cell handler is registered
 #'   only when this type is supported. May be a reactive for dynamic chart types.
 #' @param category_col,series_col,value_col Column names for think-cell export.
@@ -340,13 +361,21 @@ chart_data_downloads_server <- function(
     source_sheet = NULL,
     source_mtime = NULL,
     category_scope = NULL,
-    series_scope = NULL
+    series_scope = NULL,
+    data_for = NULL
 ) {
   shiny::moduleServer(id, function(input, output, session) {
-    resolve_opt <- function(x) {
+    # `sel` is a stored selection set being replayed (from a favorite/history
+    # entry), or NULL for "use whatever the live inputs hold". A one-argument
+    # function argument is selection-aware and gets `sel` handed to it; a
+    # reactive or zero-argument function is live-only, as before.
+    resolve_opt <- function(x, sel = NULL) {
       if (is.null(x)) return("")
       if (shiny::is.reactive(x)) return(tc_or(x(), ""))
-      if (is.function(x)) return(tc_or(x(), ""))
+      if (is.function(x)) {
+        if (length(formals(x)) >= 1) return(tc_or(x(sel), ""))
+        return(tc_or(x(), ""))
+      }
       x
     }
 
@@ -355,8 +384,8 @@ chart_data_downloads_server <- function(
     # than once at module setup, since category_scope/series_scope may be a
     # reactive/function whose value can change (e.g. a chart whose scope
     # depends on a currently-selected split column).
-    scope_or_col <- function(scope_arg, col) {
-      resolved <- resolve_opt(scope_arg)
+    scope_or_col <- function(scope_arg, col, sel = NULL) {
+      resolved <- resolve_opt(scope_arg, sel)
       if (nzchar(resolved)) resolved else col
     }
 
@@ -401,31 +430,45 @@ chart_data_downloads_server <- function(
     export_category_order <- category_order
     export_series_order <- series_order
     raw_data <- data
-    data <- shiny::reactive({
-      df <- raw_data()
+
+    # Every derived value below is computed by a plain function of
+    # (data frame, selection set) rather than inline in a reactive, so the exact
+    # same logic serves the live path (sel = NULL, wrapped in the reactives just
+    # after) and a favorite/history replay against a stored selection set.
+    apply_dictionary <- function(df, sel = NULL) {
       if (!isTRUE(input$dictionary_format)) return(df)
       if (category_col %in% names(df)) {
-        df[[category_col]] <- relabel_column(df[[category_col]], scope_or_col(category_scope, category_col))
+        df[[category_col]] <- relabel_column(df[[category_col]], scope_or_col(category_scope, category_col, sel))
       }
       if (series_col %in% names(df)) {
-        df[[series_col]] <- relabel_column(df[[series_col]], scope_or_col(series_scope, series_col))
+        df[[series_col]] <- relabel_column(df[[series_col]], scope_or_col(series_scope, series_col, sel))
       }
       df
-    })
+    }
+
     # category_order/series_order fix an explicit level order for the raw
     # values -- once those values are relabeled above, the order vector has
     # to be relabeled the same way, or format_tc_data()'s factor(levels=...)
     # silently drops anything that no longer matches.
-    resolved_category_order <- shiny::reactive({
-      if (is.null(export_category_order)) return(NULL)
-      if (!isTRUE(input$dictionary_format)) return(export_category_order)
-      dictionary_relabel(export_category_order, scope = scope_or_col(category_scope, category_col), fallback = identity_fallback)
-    })
-    resolved_series_order <- shiny::reactive({
-      if (is.null(export_series_order)) return(NULL)
-      if (!isTRUE(input$dictionary_format)) return(export_series_order)
-      dictionary_relabel(export_series_order, scope = scope_or_col(series_scope, series_col), fallback = identity_fallback)
-    })
+    order_for <- function(order_vec, scope_arg, col, sel = NULL) {
+      if (is.null(order_vec)) return(NULL)
+      if (!isTRUE(input$dictionary_format)) return(order_vec)
+      dictionary_relabel(order_vec, scope = scope_or_col(scope_arg, col, sel), fallback = identity_fallback)
+    }
+
+    # This chart's data for an explicit selection set. Returns NULL when a
+    # replay was asked for but this chart has no data_for() to honor it with --
+    # the caller then falls back to live inputs *and* logs the live selections,
+    # so a log never claims options the data didn't actually come from.
+    raw_data_for <- function(sel = NULL) {
+      if (is.null(sel)) return(raw_data())
+      if (!is.function(data_for)) return(NULL)
+      data_for(sel)
+    }
+
+    data <- shiny::reactive(apply_dictionary(raw_data()))
+    resolved_category_order <- shiny::reactive(order_for(export_category_order, category_scope, category_col))
+    resolved_series_order <- shiny::reactive(order_for(export_series_order, series_scope, series_col))
 
     # For the corner-cell log (see tc_build_datasheet_log()'s
     # dictionary_crosswalk param): every distinct raw category/series value
@@ -435,10 +478,8 @@ chart_data_downloads_server <- function(
     # leaves it unchanged, so raw == pretty and it's filtered out below) --
     # this stays empty, and adds nothing to the log, whenever the checkbox
     # is off or no value in this chart happens to be in the dictionary.
-    dictionary_crosswalk <- shiny::reactive({
+    crosswalk_for <- function(df, sel = NULL) {
       if (!isTRUE(input$dictionary_format)) return(NULL)
-      df <- raw_data()
-      pairs <- character(0)
       collect <- function(col, scope) {
         if (!(col %in% names(df))) return(character(0))
         raw_vals <- unique(as.character(df[[col]]))
@@ -448,11 +489,13 @@ chart_data_downloads_server <- function(
         stats::setNames(pretty_vals[changed], raw_vals[changed])
       }
       pairs <- c(
-        collect(category_col, scope_or_col(category_scope, category_col)),
-        collect(series_col, scope_or_col(series_scope, series_col))
+        collect(category_col, scope_or_col(category_scope, category_col, sel)),
+        collect(series_col, scope_or_col(series_scope, series_col, sel))
       )
       pairs[!duplicated(names(pairs))]
-    })
+    }
+
+    dictionary_crosswalk <- shiny::reactive(crosswalk_for(raw_data()))
 
     # The template that will be used for the slide: the user's manual choice
     # (picked from the TC_TEMPLATE_MODAL_JS grid, see below) if set, otherwise
@@ -705,8 +748,32 @@ chart_data_downloads_server <- function(
       # without writing a standalone ZIP for it first. raw_data is only
       # consumed by favorites' "raw" bulk download -- build_export_now()
       # and Export History never read it.
-      build_export_spec <- function() {
+      build_export_spec <- function(selections = NULL) {
         resolved_chart_type <- resolve_tc_chart_type(chart_type)
+
+        # Replaying a favorite/history entry's stored options, when it has them
+        # and this chart can honor them. Anything that fails here degrades to
+        # the live inputs -- and `sel` is dropped with it, so the selections
+        # reported below always describe the data actually produced.
+        sel <- selections
+        base_df <- tryCatch(raw_data_for(sel), error = function(e) NULL)
+        if (!is.null(sel) && is.null(base_df)) {
+          warning(sprintf(
+            paste0("Chart '%s' cannot rebuild against stored options (no data_for() wired, ",
+                   "or it failed) -- falling back to the session's current inputs. ",
+                   "See ?chart_data_downloads_server's data_for argument."), id
+          ), call. = FALSE)
+          shiny::showNotification(
+            paste0("This chart was rebuilt from the options currently selected on screen, ",
+                   "not the ones saved with it."),
+            type = "warning", duration = 8
+          )
+          sel <- NULL
+          base_df <- raw_data()
+        }
+        df_export <- apply_dictionary(base_df, sel)
+        cat_order <- order_for(export_category_order, category_scope, category_col, sel)
+        ser_order <- order_for(export_series_order, series_scope, series_col, sel)
 
         # Underlying table only makes sense for think-cell-supported types.
         if (!is_tc_chart_type_supported(resolved_chart_type)) {
@@ -719,14 +786,14 @@ chart_data_downloads_server <- function(
 
         tc_data <- tryCatch(
           format_tc_data(
-            df = data(),
+            df = df_export,
             chart_type = resolved_chart_type,
             category_col = category_col,
             series_col = series_col,
             value_col = value_col,
             agg_fun = agg_fun,
-            category_order = resolved_category_order(),
-            series_order = resolved_series_order(),
+            category_order = cat_order,
+            series_order = ser_order,
             waterfall_end_col = waterfall_end_col,
             waterfall_subtotal_cols = waterfall_subtotal_cols,
             facet_col = facet_col
@@ -736,7 +803,7 @@ chart_data_downloads_server <- function(
 
         if (is.null(tc_data)) {
           # Fall back to the raw data so the ZIP is still useful.
-          tc_data <- data()
+          tc_data <- df_export
         }
 
         if (!tc_template_available(resolved_chart_type)) {
@@ -756,14 +823,14 @@ chart_data_downloads_server <- function(
         if (is.null(facet_col)) {
           prep <- tryCatch(
             tc_prepare_slide(
-              df = data(),
+              df = df_export,
               chart_type = resolved_chart_type,
               category_col = category_col,
               series_col = series_col,
               value_col = value_col,
               agg_fun = agg_fun,
-              category_order = resolved_category_order(),
-              series_order = resolved_series_order()
+              category_order = cat_order,
+              series_order = ser_order
             ),
             error = function(e) NULL
           )
@@ -775,28 +842,31 @@ chart_data_downloads_server <- function(
 
         list(
           tc_data = tc_data,
-          raw_data = data(),
+          raw_data = df_export,
           chart_type = slide_type,
           slide_matrix = slide_matrix,
           is_faceted = !is.null(facet_col) || is_tc_workbook_list(tc_data),
-          slide_title = resolve_opt(slide_title),
-          figure_title = resolve_opt(figure_title),
+          slide_title = resolve_opt(slide_title, sel),
+          figure_title = resolve_opt(figure_title, sel),
           template_override = slide_effective_override(),
           slide_order = tc_or(input$slide_order, "auto"),
           dashboard_title = tc_ctx_dashboard_title(),
           tab_label = tc_ctx_active_tab(),
           subtab_label = tc_ctx_active_subtab(),
-          selections = tc_ctx_selections(module_id = id),
-          source_output = resolve_opt(source_output),
-          source_sheet = resolve_opt(source_sheet),
-          source_mtime = resolve_opt(source_mtime),
+          # The options this spec's data was ACTUALLY built from: the replayed
+          # set when one was honored, otherwise the live inputs (including the
+          # fallback case above, where `sel` was deliberately reset to NULL).
+          selections = if (is.null(sel)) tc_ctx_selections(module_id = id) else sel,
+          source_output = resolve_opt(source_output, sel),
+          source_sheet = resolve_opt(source_sheet, sel),
+          source_mtime = resolve_opt(source_mtime, sel),
           filename_prefix = filename_prefix,
           # Captured here (not recomputed downstream) so a bulk favorites /
           # export-history rebuild logs the same dictionary provenance the
           # single-chart download does -- see tc_build_datasheet_log()'s
           # dictionary_format/dictionary_crosswalk params.
           dictionary_format = isTRUE(input$dictionary_format),
-          dictionary_crosswalk = dictionary_crosswalk()
+          dictionary_crosswalk = crosswalk_for(base_df, sel)
         )
       }
 
@@ -827,9 +897,12 @@ chart_data_downloads_server <- function(
       # default, distinguishes "not supplied" (this chart's own button,
       # which should use its own `pending_slide_capture()`) from "supplied,
       # but no image" (Export History's round found nothing to use either).
-      build_export_now <- function(zip_path, favorite_download_id = NULL, captured_image, chart_id_override = NULL) {
+      # `selections` replays a stored option set (Export History's
+      # "Regenerate"); NULL keeps this chart's own button on the live inputs.
+      build_export_now <- function(zip_path, favorite_download_id = NULL, captured_image,
+                                   chart_id_override = NULL, selections = NULL) {
         image_to_use <- if (missing(captured_image)) pending_slide_capture() else captured_image
-        spec <- build_export_spec()
+        spec <- build_export_spec(selections)
 
         # Auto-log this export to the shared Export history tab (see
         # utils/export_history.R), using exactly this already-resolved spec
@@ -909,9 +982,14 @@ chart_data_downloads_server <- function(
       # standalone ZIP (build_zip, solo regenerate) or folded into a combined
       # deck alongside other charts (get_spec, bulk regenerate) -- rather
       # than only ever replaying today's snapshot.
+      # can_replay says whether get_spec()/build_zip() can honor a stored
+      # option set (i.e. a data_for() was wired). Favorites/Export History use
+      # it to warn instead of silently handing back live-input data, and
+      # tc_assert_replayable() turns it into a hard check in tests.
       tc_chart_registry_register(session, id, list(
         build_zip = build_export_now,
-        get_spec  = build_export_spec
+        get_spec  = build_export_spec,
+        can_replay = is.function(data_for)
       ))
 
       output$slide <- shiny::downloadHandler(

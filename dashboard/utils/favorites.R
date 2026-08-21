@@ -15,10 +15,13 @@
 #' `utils/export_history.R`). A favorite whose chart isn't live in the
 #' downloading session (e.g. that chart no longer exists in the dashboard) is
 #' simply skipped, with a notification -- there is no frozen-snapshot
-#' fallback. Note this shares Export History's own known limitation: the
-#' rebuild reads whatever the chart's inputs currently show in that session,
-#' not the filter selections active when the favorite was starred (those are
-#' kept in `selections` for display only).
+#' fallback. The rebuild uses *today's data* but *that favorite's own stored
+#' `selections`* (fed back into the chart's `data_for()` -- see
+#' `chart_data_downloads_server()`), so each favorite reproduces the figure it
+#' was starred for rather than whatever the chart's inputs happen to show in
+#' the downloading session. A chart with no `data_for()` wired can't honor
+#' them: it degrades to the live inputs, warns, and logs the live selections
+#' (never the stored ones it couldn't reproduce).
 
 FAVORITES_RELATIVE_PATH <- file.path("state", "favorites.json")
 
@@ -513,7 +516,14 @@ tc_build_raw_xlsx_from_specs <- function(specs, path) {
 favorites_live_spec_or_null <- function(entry, session) {
   reg <- tc_chart_registry_get(session, tc_or(entry$module_id, ""))
   if (is.null(reg)) return(NULL)
-  spec <- tryCatch(reg$get_spec(), error = function(e) NULL)
+  # Rebuild against the options THIS favorite was starred with, not whatever
+  # the chart's inputs happen to hold right now -- otherwise two favorites of
+  # the same chart saved with different options both download the live state,
+  # i.e. identical data (the bug this argument exists to prevent). The chart
+  # falls back to live inputs, and reports the live selections, when it has no
+  # data_for() to replay with (see chart_data_downloads_server()).
+  sel <- if (length(entry$selections) > 0) entry$selections else NULL
+  spec <- tryCatch(tc_registry_spec(reg, sel), error = function(e) NULL)
   if (is.null(spec) || isTRUE(spec$is_faceted)) return(NULL)
   spec
 }

@@ -168,6 +168,69 @@ tc_chart_registry_get <- function(session, id) {
   get(id, envir = reg, inherits = FALSE)
 }
 
+#' Every chart id registered in this session.
+#' @param session The Shiny session.
+tc_chart_registry_ids <- function(session) {
+  sort(ls(envir = tc_chart_registry(session), all.names = FALSE))
+}
+
+#' Whether a registered chart's function accepts a `selections` replay argument.
+#'
+#' `chart_data_downloads_server()` registers `get_spec`/`build_zip` that take
+#' one, but a narrower registration (an older build still in a running session,
+#' or a hand-rolled/test registration) may not -- calling it with an argument it
+#' has no formal for is an error, so callers check first and fall back to the
+#' live-input call rather than failing the whole download.
+#' @param f A function from a registry entry.
+tc_accepts_selections <- function(f) {
+  if (!is.function(f)) return(FALSE)
+  fmls <- names(formals(f))
+  "selections" %in% fmls || "..." %in% fmls
+}
+
+#' Build a registered chart's spec, replaying `selections` when that chart can.
+#' @param reg A registry entry (from [tc_chart_registry_get()]).
+#' @param selections Named list of stored option values, or `NULL` for live.
+tc_registry_spec <- function(reg, selections = NULL) {
+  if (is.null(reg) || !is.function(reg$get_spec)) return(NULL)
+  if (is.null(selections) || !tc_accepts_selections(reg$get_spec)) return(reg$get_spec())
+  reg$get_spec(selections)
+}
+
+#' Assert that every registered chart can rebuild against a *stored* option set.
+#'
+#' A chart wired without `data_for` (see `chart_data_downloads_server()`) can
+#' only ever rebuild from the session's live inputs, which silently makes two
+#' favorites/history entries of that chart -- saved with different options --
+#' download identical data. That failure is invisible in the UI (the stored
+#' options still *display* correctly), so it needs a mechanical check rather
+#' than review: call this from a test that mounts the real app server, and it
+#' fails loudly the moment a chart is added or edited without replay support.
+#'
+#' @param session A Shiny session whose charts have been registered (e.g. inside
+#'   `shiny::testServer()`).
+#' @param ignore Chart ids deliberately exempt -- only for a chart whose data
+#'   genuinely can't depend on options (a fixed, unfiltered figure). Keep this
+#'   list short and justified; exempting a filtered chart re-introduces the bug.
+#' @return Invisibly, the character vector of replay-capable ids.
+tc_assert_replayable <- function(session, ignore = character(0)) {
+  ids <- setdiff(tc_chart_registry_ids(session), ignore)
+  bad <- Filter(function(id) {
+    reg <- tc_chart_registry_get(session, id)
+    !isTRUE(reg$can_replay)
+  }, ids)
+  if (length(bad) > 0) {
+    stop(sprintf(
+      paste0("These charts cannot rebuild from a favorite/history entry's stored options: %s.\n",
+             "Wire `data_for = function(sel) ...` on each chart's ",
+             "chart_data_downloads_server() call (see its docs), or add the id to `ignore` ",
+             "if its data genuinely never depends on user options."),
+      paste(bad, collapse = ", ")
+    ), call. = FALSE)
+  }
+  invisible(ids)
+}
+
 # ---------------------------------------------------------------------------
 # App context: registered once by the main server so the download module can
 # label the log with the dashboard name, the active tab / sub-tab, and a
