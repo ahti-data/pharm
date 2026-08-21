@@ -137,12 +137,14 @@ ui <- fluidPage(
             choices = c(
               "Totale kosten (mln euro)" = "totale_kosten",
               "Aantal gebruikers" = "gebruikers",
-              "Gemiddelde kosten per gebruiker (euro)" = "gem_kosten_per_gebr"
+              "Gemiddelde kosten per gebruiker (euro)" = "gem_kosten_per_gebr",
+              "Prevalentie (per 1.000 personen, 17+)" = "prevalentie"
             )
           ),
           helpText(
             "Basis-GGZ, specialistische GGZ (ambulant) en specialistische GGZ (met verblijf), ",
-            "op basis van GGZ ZPM-prestatiedata 2024."
+            "op basis van GGZ ZPM-prestatiedata 2024. Prevalentie = aantal gebruikers gedeeld ",
+            "door de 17+ bevolking van de gekozen uitsplitsing, keer 1.000."
           )
         ),
         mainPanel(
@@ -404,7 +406,8 @@ server <- function(input, output, session) {
       input$ggz_metric,
       totale_kosten = "Totale zorgkosten (mln euro)",
       gebruikers = "Aantal gebruikers",
-      gem_kosten_per_gebr = "Gemiddelde kosten per gebruiker (euro)"
+      gem_kosten_per_gebr = "Gemiddelde kosten per gebruiker (euro)",
+      prevalentie = "Prevalentie per 1.000 personen (17+)"
     )
   })
 
@@ -418,6 +421,8 @@ server <- function(input, output, session) {
     df$subgroep <- pharm_order_subgroep(df$subgroep, input$ggz_dim, LEEFTIJD_ORDER_17PLUS)
     df$waarde <- if (identical(input$ggz_metric, "totale_kosten")) {
       df$totale_kosten / 1e6
+    } else if (identical(input$ggz_metric, "prevalentie")) {
+      df$gebruikers / df$n_17plus * 1000
     } else {
       df[[input$ggz_metric]]
     }

@@ -233,8 +233,15 @@ load_atc_combinaties <- function(path = PHARM_ATC_FILE) {
 #' (basis-GGZ / specialistische GGZ zonder verblijf / met verblijf). Source:
 #' `iteration0_ggz.xlsx`'s `totaal`/`ses`/`inkomen`/`opleiding`/`leeftijd`
 #' sheets (see `src/02_ggz_results_iteration0.R` in the pharm repo).
+#'
+#' The source sheets only record the subgroup's 17+ population size
+#' (`N_17+`) once per subgroup -- on its "bg" row, `NA` on the "sg_no_vd"/
+#' "sg_met_vd" rows of the same subgroup -- since it doesn't vary by GGZ
+#' category. `n_17plus` below is filled in across every category row of the
+#' same `(dim, subgroep)` group, so a prevalence (`gebruikers / n_17plus *
+#' 1000`) can be computed for every GGZ category, not just "bg".
 #' @return Tibble with columns `dim`, `subgroep`, `categorie`,
-#'   `totale_kosten`, `gebruikers`, `gem_kosten_per_gebr`.
+#'   `totale_kosten`, `gebruikers`, `gem_kosten_per_gebr`, `n_17plus`.
 load_ggz_kosten <- function(path = PHARM_GGZ_FILE) {
   sheet_by_dim <- c(totaal = "totaal", seswoa = "ses", inkomen = "inkomen",
                      opleiding = "opleiding", leeftijd = "leeftijd")
@@ -243,10 +250,14 @@ load_ggz_kosten <- function(path = PHARM_GGZ_FILE) {
     df <- pharm_read_sheet(path, sheet_by_dim[[dim]])
     df <- pharm_attach_subgroep(df, dim)
     df$dim <- dim
-    df[, c("dim", "subgroep", "categorie", "totale_kosten", "gebruikers", "gem_kosten_per_gebr")]
+    df$n_17plus <- df[["N_17+"]]
+    df[, c("dim", "subgroep", "categorie", "totale_kosten", "gebruikers", "gem_kosten_per_gebr", "n_17plus")]
   })
 
-  dplyr::bind_rows(rows)
+  combined <- dplyr::bind_rows(rows)
+  group_key <- paste(combined$dim, combined$subgroep, sep = "")
+  combined$n_17plus <- ave(combined$n_17plus, group_key, FUN = function(v) v[!is.na(v)][1])
+  combined
 }
 
 #' Long-format prevalentie (per 1.000 personen) van GGZ-diagnosegroepen per
