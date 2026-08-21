@@ -16,16 +16,16 @@ jobs:
     - name: 📦 Prepare deploy folder
       run: |
         mkdir -p deploy
-        cp app.R deploy/
-        cp -r data deploy/
-        cp -r utils deploy/
-        cp -r templates deploy/
+        cp dashboard/app.R deploy/
+        cp -r dashboard/data deploy/
+        cp -r dashboard/utils deploy/
+        cp -r dashboard/templates deploy/
 
     - name: ⚙️ Load deployment config
       shell: bash
       run: |
-        if [ -f deploy.env ]; then
-          . ./deploy.env
+        if [ -f dashboard/deploy.env ]; then
+          . ./dashboard/deploy.env
         fi
 
         if [ -z "${APP_FOLDER:-}" ] || [ "$APP_FOLDER" = "NONE" ]; then
