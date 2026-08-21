@@ -53,9 +53,16 @@ jobs:
         # exists) instead of aborting the whole batch.
         printf '%s\n' "-mkdir ${REMOTE_PATH}" "bye" > /tmp/sftp_mkdir_batch.txt
 
+        # -b (batch mode) implies BatchMode=yes on the underlying ssh
+        # connection, which disables interactive prompting -- so password
+        # auth silently can't happen and sshpass never gets a prompt to
+        # answer ("Permission denied (publickey,password)"). Force
+        # BatchMode=no back on so password auth still works; -b still
+        # avoids sftp's own confirmation prompts for the mkdir command.
         sshpass -p "$SFTP_PASSWORD" sftp \
           -o StrictHostKeyChecking=no \
           -o UserKnownHostsFile=/dev/null \
+          -o BatchMode=no \
           -P 22 \
           -b /tmp/sftp_mkdir_batch.txt \
           "${{ secrets.FTP_USERNAME }}@${{ secrets.FTP_SERVER }}"
