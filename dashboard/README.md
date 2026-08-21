@@ -2,7 +2,19 @@
 
 This repository is a starter template for Shiny dashboards.
 
-Use it as follows:
+## This dashboard
+
+`app.R` is wired up as a concrete dashboard for the `pharm` repo's iteration-0 outputs (het
+Amsterdam health & technology institute, ahti): psychofarmacagebruik (ATC), GGZ-zorggebruik en
+-kosten, en de prevalentie van psychische diagnosegroepen, elk uitsplitsbaar naar SES-WOA,
+inkomensklasse, opleidingsniveau en leeftijdsgroep. Source data lives in `data/*.xlsx` (already
+aggregated, non-traceable outputs of the pharm pipeline — see the pharm repo's own top-level
+`README.md`); `utils/pharm_data.R` reads and reshapes them, and
+`data/metadata/dictionary_seed.R` seeds the Dictionary tab with Dutch labels for every raw code.
+The template's own generic scaffold description below still applies to `utils/`/`templates/`/
+`state/` — only `app.R`'s own UI/server logic is dashboard-specific.
+
+Use the template as follows:
 
 1. Put your input files in `data/`.
 2. Keep shared metadata and branding helpers in `data/metadata/`.
@@ -65,7 +77,7 @@ All of a chart's downloads/preview/favorite controls (the three download buttons
 Install these R packages before running the app or tests:
 
 ```r
-install.packages(c("shiny", "shinymanager", "dplyr", "ggplot2", "tidyr", "tibble", "writexl", "jsonlite", "testthat"))
+install.packages(c("shiny", "shinymanager", "dplyr", "ggplot2", "tidyr", "tibble", "readxl", "writexl", "jsonlite", "testthat"))
 ```
 
 ## Run Locally
