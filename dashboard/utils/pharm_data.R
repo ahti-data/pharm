@@ -165,6 +165,30 @@ pharm_fill_palette <- function(n) {
   grDevices::colorRampPalette(base_colors)(n)
 }
 
+#' Plain-notation number formatter -- ggplot's default axis labels fall back
+#' to scientific notation ("8e+05") for large values; `scales::label_number()`
+#' always renders fixed/plain notation instead, with Dutch thousands/decimal
+#' separators (`.`/`,`). Used both as a `scale_*_continuous(labels = ...)`
+#' argument (call with no `accuracy`, so it auto-picks a sensible decimal
+#' count from the actual axis breaks) and, called directly on a vector with
+#' an explicit `accuracy`, to format the same numbers for the data table
+#' under each chart.
+#' @param accuracy Passed through to `scales::label_number()`; `NULL`
+#'   (default) auto-picks precision, a number fixes it (e.g. `1` for whole
+#'   numbers, `0.1` for one decimal).
+pharm_number_labels <- function(accuracy = NULL) {
+  scales::label_number(accuracy = accuracy, big.mark = ".", decimal.mark = ",")
+}
+
+#' Plain-notation formatter for a numeric year axis/column (e.g. `jaar` as a
+#' continuous x-scale) -- same "never scientific" guarantee as
+#' [pharm_number_labels()], but without a thousands separator, since a year
+#' like 2016 is not a quantity and `pharm_number_labels(1)(2016)` would
+#' otherwise misleadingly render it as "2.016".
+pharm_year_labels <- function() {
+  scales::label_number(accuracy = 1, big.mark = "")
+}
+
 #' Long-format prevalentie (per 1.000 personen) van psychofarmacagebruik,
 #' per uitsplitsing en per ATC-klasse of mono-/polyfarmaciegroep. Source:
 #' `iteration0_atc.xlsx`'s `total`/`seswoa`/`inkomen`/`opleiding`/`leeftijd`

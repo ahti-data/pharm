@@ -100,6 +100,8 @@ ui <- fluidPage(
             ),
             mainPanel(
               plotOutput("atc_plot"),
+              h4("Data in de grafiek"),
+              tableOutput("atc_table"),
               br(),
               chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar")
             )
@@ -118,6 +120,8 @@ ui <- fluidPage(
             ),
             mainPanel(
               plotOutput("combi_plot", height = "550px"),
+              h4("Data in de grafiek"),
+              tableOutput("combi_table"),
               br(),
               chart_data_downloads_ui("atc_combi_dl", chart_type = "bar")
             )
@@ -146,6 +150,8 @@ ui <- fluidPage(
         ),
         mainPanel(
           plotOutput("ggz_plot"),
+          h4("Data in de grafiek"),
+          tableOutput("ggz_table"),
           br(),
           chart_data_downloads_ui("ggz_kosten_dl", chart_type = "grouped_bar")
         )
@@ -180,6 +186,8 @@ ui <- fluidPage(
             ),
             mainPanel(
               plotOutput("prev_plot"),
+              h4("Data in de grafiek"),
+              tableOutput("prev_table"),
               br(),
               chart_data_downloads_ui("prev_diag_dl", chart_type = "line")
             )
@@ -203,6 +211,8 @@ ui <- fluidPage(
             ),
             mainPanel(
               plotOutput("angst_plot"),
+              h4("Data in de grafiek"),
+              tableOutput("angst_table"),
               br(),
               chart_data_downloads_ui("angst_dl", chart_type = "grouped_bar")
             )
@@ -299,12 +309,23 @@ server <- function(input, output, session) {
     ggplot(df, aes(x = subgroep, y = prevalentie, fill = klasse)) +
       geom_col(position = "dodge") +
       scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$klasse)), levels(df$klasse))) +
+      scale_y_continuous(labels = pharm_number_labels()) +
       labs(
         title = atc_title(), x = pharm_dim_label(input$atc_dim),
         y = "Prevalentie per 1.000 personen", fill = NULL
       ) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  output$atc_table <- renderTable({
+    df <- atc_plot_data()
+    data.frame(
+      Uitsplitsing = as.character(df$subgroep),
+      Klasse = as.character(df$klasse),
+      `Prevalentie per 1.000` = pharm_number_labels(0.1)(df$prevalentie),
+      check.names = FALSE
+    )
   })
 
   chart_data_downloads_server(
@@ -351,8 +372,18 @@ server <- function(input, output, session) {
     ggplot(df, aes(x = combi_label, y = N)) +
       geom_col(fill = ahti_branding$colors$helder_blauw) +
       coord_flip() +
+      scale_y_continuous(labels = pharm_number_labels()) +
       labs(title = combi_title(), x = NULL, y = "Aantal personen") +
       theme_minimal()
+  })
+
+  output$combi_table <- renderTable({
+    df <- combi_plot_data()
+    data.frame(
+      Combinatie = as.character(df$combi_label),
+      `Aantal personen` = pharm_number_labels(1)(df$N),
+      check.names = FALSE
+    )
   })
 
   chart_data_downloads_server(
@@ -377,14 +408,17 @@ server <- function(input, output, session) {
     DIM_SCOPE_MAP[[input$ggz_dim]]
   })
 
-  ggz_title <- reactive({
-    metric_label <- switch(
+  ggz_metric_label <- reactive({
+    switch(
       input$ggz_metric,
       totale_kosten = "Totale zorgkosten (mln euro)",
       gebruikers = "Aantal gebruikers",
       gem_kosten_per_gebr = "Gemiddelde kosten per gebruiker (euro)"
     )
-    paste0(metric_label, " naar GGZ-categorie — ", pharm_dim_label(input$ggz_dim))
+  })
+
+  ggz_title <- reactive({
+    paste0(ggz_metric_label(), " naar GGZ-categorie — ", pharm_dim_label(input$ggz_dim))
   })
 
   ggz_data_raw <- reactive({
@@ -411,9 +445,22 @@ server <- function(input, output, session) {
     ggplot(df, aes(x = subgroep, y = waarde, fill = categorie)) +
       geom_col(position = "dodge") +
       scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$categorie)), levels(df$categorie))) +
+      scale_y_continuous(labels = pharm_number_labels()) +
       labs(title = ggz_title(), x = pharm_dim_label(input$ggz_dim), y = NULL, fill = NULL) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  output$ggz_table <- renderTable({
+    df <- ggz_plot_data()
+    accuracy <- if (input$ggz_metric %in% c("gebruikers", "gem_kosten_per_gebr")) 1 else 0.1
+    out <- data.frame(
+      Uitsplitsing = as.character(df$subgroep),
+      `GGZ-categorie` = as.character(df$categorie),
+      check.names = FALSE
+    )
+    out[[ggz_metric_label()]] <- pharm_number_labels(accuracy)(df$waarde)
+    out
   })
 
   chart_data_downloads_server(
@@ -478,8 +525,20 @@ server <- function(input, output, session) {
       geom_line(linewidth = 1) +
       geom_point() +
       scale_color_manual(values = setNames(pharm_fill_palette(nlevels(df$groep)), levels(df$groep))) +
+      scale_x_continuous(labels = pharm_year_labels()) +
+      scale_y_continuous(labels = pharm_number_labels()) +
       labs(title = prev_title(), x = "Jaar", y = "Prevalentie per 1.000 personen", color = NULL) +
       theme_minimal()
+  })
+
+  output$prev_table <- renderTable({
+    df <- prev_plot_data()
+    data.frame(
+      Jaar = as.character(df$jaar),
+      Groep = as.character(df$groep),
+      `Prevalentie per 1.000` = pharm_number_labels(0.1)(df$prevalentie),
+      check.names = FALSE
+    )
   })
 
   chart_data_downloads_server(
@@ -540,8 +599,19 @@ server <- function(input, output, session) {
     ggplot(df, aes(x = factor(jaar), y = prevalentie, fill = groep)) +
       geom_col(position = "dodge") +
       scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$groep)), levels(df$groep))) +
+      scale_y_continuous(labels = pharm_number_labels()) +
       labs(title = angst_title(), x = "Jaar", y = "Prevalentie per 1.000 personen", fill = NULL) +
       theme_minimal()
+  })
+
+  output$angst_table <- renderTable({
+    df <- angst_plot_data()
+    data.frame(
+      Jaar = as.character(df$jaar),
+      Groep = as.character(df$groep),
+      `Prevalentie per 1.000` = pharm_number_labels(0.1)(df$prevalentie),
+      check.names = FALSE
+    )
   })
 
   chart_data_downloads_server(
