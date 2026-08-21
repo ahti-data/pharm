@@ -28,11 +28,9 @@ source("utils/dictionary.R")
 source("data/metadata/dictionary_seed.R")
 source("utils/dictionary_admin.R")
 source("utils/tab_theme.R")
-source("utils/auth.R")
 source("utils/pharm_data.R")
 
 library(shiny)
-library(shinymanager)
 library(dplyr)
 library(ggplot2)
 library(readxl)
@@ -67,7 +65,6 @@ DIAGNOSEGROEP_DEFAULT <- c("depr_stemming_stoornis", "angststoornis", "persoonli
 SG_GROEP_CHOICES <- setNames(SG_GROEP_COLS, vapply(SG_GROEP_COLS, pharm_pretty, character(1), scope = "sg_groep"))
 
 ui <- fluidPage(
-  if (is_auth_enabled()) auth_ui_head(),
   tc_tab_color_theme(ahti_branding),
   titlePanel("Psychofarmacagebruik en GGZ-zorggebruik — ahti dashboard"),
   p(
@@ -244,12 +241,6 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
-  if (is_auth_enabled()) {
-    auth <- setup_dashboard_auth(session)
-  } else {
-    show_app_without_auth(session)
-  }
-
   tc_register_app_context(
     input = input,
     dashboard_title = DASHBOARD_TITLE,
@@ -636,8 +627,4 @@ server <- function(input, output, session) {
   dictionary_admin_server("dictionary")
 }
 
-if (is_auth_enabled()) {
-  shinyApp(secure_app(ui, enable_admin = TRUE), server)
-} else {
-  shinyApp(ui = ui, server = server)
-}
+shinyApp(ui = ui, server = server)

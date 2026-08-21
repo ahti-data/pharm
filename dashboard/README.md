@@ -30,15 +30,6 @@ Use the template as follows:
 - [utils/favorites.R](utils/favorites.R) is the shared (per-dashboard, not per-user) favorites list and combined "download all favorites" deck.
 - [utils/export_history.R](utils/export_history.R) automatically logs every slide export so it can be redownloaded exactly, any time later, from the **Export history** tab.
 - [utils/template_admin.R](utils/template_admin.R) lets someone upload a new `.pptx` template (and an optional preview screenshot) through the app, no git commit required.
-- [utils/auth.R](utils/auth.R) provides shinymanager login and per-app access checks for deployed dashboards.
-
-## Authentication
-
-Deployed dashboards use [shinymanager](https://datastorm-open.github.io/shinymanager/) with a shared credentials database on the Shiny server (`/srv/shiny-server/passwords.sqlite`). After login, access is checked against the `apps` column on the user record (`all`, or a comma-separated list of allowed folder names).
-
-- **Production:** set `APP_FOLDER` in [deploy.env](deploy.env) to the folder name under `/apps/`; users must have that name in their `apps` column (or `all`).
-- **Local development:** auth is skipped automatically when the credentials DB file is not present.
-- **Overrides:** set `SHINY_AUTH_DB` to point at a different DB path, or `SHINY_AUTH_DB_PASSPHRASE` if the DB is encrypted.
 
 ## Think-cell export workflow
 

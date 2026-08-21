@@ -19,7 +19,7 @@ for how to run the suite in this repo; adapt the path for a sibling.
 
 - `data/` — project input files.
 - `data/metadata/` — shared metadata and branding helpers (e.g. `brand_colors.R`).
-- `utils/` — reusable functions shared across the app (including `auth.R` for shinymanager login).
+- `utils/` — reusable functions shared across the app.
 - `templates/` — built-in think-cell `.pptx` slide templates for the "Download slide" export
   (committed to git, shipped by the deploy workflow).
   - `templates/previews/<name>.png` — optional, curated-by-hand screenshot for a built-in
@@ -167,7 +167,7 @@ for how to run the suite in this repo; adapt the path for a sibling.
 ## Dependencies
 
 ```r
-install.packages(c("shiny", "shinymanager", "dplyr", "ggplot2", "tidyr", "tibble", "writexl", "jsonlite", "testthat", "filelock", "rlang", "htmltools"))
+install.packages(c("shiny", "dplyr", "ggplot2", "tidyr", "tibble", "writexl", "jsonlite", "testthat", "filelock", "rlang", "htmltools"))
 ```
 
 ## Running

@@ -9,6 +9,5 @@ source("../utils/chart_downloads.R")
 source("../utils/dictionary.R")
 source("../utils/dictionary_admin.R")
 source("../utils/tab_theme.R")
-source("../utils/auth.R")
 
 test_dir("testthat")
