@@ -75,16 +75,20 @@ dictionary_seed_entries <- function() {
     entry("onbekend", "hbopl", "Onbekend")
   )
 
+  # Scope "inkomen_klasse_pct", not the column name "inkomen_klasse" -- see
+  # the note on DIM_SCOPE_MAP in utils/pharm_data.R for why (avoids a
+  # deployed dashboard's already-seeded, stale "... WML" labels shadowing
+  # this fix forever).
   inkomen_klasse <- list(
-    entry("tot_120", "inkomen_klasse", "< 120%"),
-    entry("120_160", "inkomen_klasse", "120–160%"),
-    entry("160_200", "inkomen_klasse", "160–200%"),
-    entry("200_240", "inkomen_klasse", "200–240%"),
-    entry("240_280", "inkomen_klasse", "240–280%"),
-    entry("280_400", "inkomen_klasse", "280–400%"),
-    entry("400+", "inkomen_klasse", "≥ 400%"),
-    entry("student", "inkomen_klasse", "Student"),
-    entry("Onbekend_institutioneel", "inkomen_klasse", "Onbekend / institutioneel")
+    entry("tot_120", "inkomen_klasse_pct", "< 120%"),
+    entry("120_160", "inkomen_klasse_pct", "120–160%"),
+    entry("160_200", "inkomen_klasse_pct", "160–200%"),
+    entry("200_240", "inkomen_klasse_pct", "200–240%"),
+    entry("240_280", "inkomen_klasse_pct", "240–280%"),
+    entry("280_400", "inkomen_klasse_pct", "280–400%"),
+    entry("400+", "inkomen_klasse_pct", "≥ 400%"),
+    entry("student", "inkomen_klasse_pct", "Student"),
+    entry("Onbekend_institutioneel", "inkomen_klasse_pct", "Onbekend / institutioneel")
   )
 
   seswoa_cat <- list(

@@ -43,9 +43,20 @@ DIM_COL_MAP <- c(
 #' Dictionary `scope` matching each dimension's raw column (see
 #' `data/metadata/dictionary_seed.R`) -- used both for on-screen relabeling
 #' and for `chart_data_downloads_server()`'s `category_scope`/`series_scope`.
+#'
+#' `inkomen` deliberately uses the scope "inkomen_klasse_pct", not the
+#' column name "inkomen_klasse" -- a live dashboard's `state/dictionary.json`
+#' only ever *adds* seed entries missing by `(raw_key, scope)`, it never
+#' overwrites an existing one (see `dictionary_fill_missing_seed()` in
+#' `utils/dictionary.R`). The original seed had "WML" in every
+#' inkomen_klasse label; once that had been written to a deployed
+#' `state/dictionary.json`, changing only the label text in
+#' `dictionary_seed.R` would never reach an already-running dashboard. A
+#' new scope name is a clean (raw_key, scope) pair the stored file has
+#' never seen, so it always seeds fresh.
 DIM_SCOPE_MAP <- c(
   seswoa    = "seswoa_cat",
-  inkomen   = "inkomen_klasse",
+  inkomen   = "inkomen_klasse_pct",
   opleiding = "hbopl",
   leeftijd  = "leeftijd_groep",
   totaal    = "subgroep_totaal"
