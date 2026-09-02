@@ -76,13 +76,13 @@ dictionary_seed_entries <- function() {
   )
 
   inkomen_klasse <- list(
-    entry("tot_120", "inkomen_klasse", "< 120% WML"),
-    entry("120_160", "inkomen_klasse", "120–160% WML"),
-    entry("160_200", "inkomen_klasse", "160–200% WML"),
-    entry("200_240", "inkomen_klasse", "200–240% WML"),
-    entry("240_280", "inkomen_klasse", "240–280% WML"),
-    entry("280_400", "inkomen_klasse", "280–400% WML"),
-    entry("400+", "inkomen_klasse", "≥ 400% WML"),
+    entry("tot_120", "inkomen_klasse", "< 120%"),
+    entry("120_160", "inkomen_klasse", "120–160%"),
+    entry("160_200", "inkomen_klasse", "160–200%"),
+    entry("200_240", "inkomen_klasse", "200–240%"),
+    entry("240_280", "inkomen_klasse", "240–280%"),
+    entry("280_400", "inkomen_klasse", "280–400%"),
+    entry("400+", "inkomen_klasse", "≥ 400%"),
     entry("student", "inkomen_klasse", "Student"),
     entry("Onbekend_institutioneel", "inkomen_klasse", "Onbekend / institutioneel")
   )

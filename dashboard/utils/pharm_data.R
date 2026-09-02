@@ -135,6 +135,22 @@ pharm_order_subgroep <- function(x, dim, leeftijd_order = LEEFTIJD_ORDER_17PLUS)
   factor(x, levels = c(order, extra))
 }
 
+#' Raw subgroup category codes available for a non-"totaal" dimension, in
+#' the same order [pharm_order_subgroep()] plots them in -- used to build a
+#' per-dimension category picker in app.R (e.g. deselect "student" within
+#' inkomensklasse without leaving the dimension entirely).
+#' @param dim One of `names(DIM_CHOICES)`'s values, excluding `"totaal"`.
+#' @param leeftijd_order Age-band order to use; see [pharm_order_subgroep()].
+pharm_dim_categories <- function(dim, leeftijd_order = LEEFTIJD_ORDER_17PLUS) {
+  switch(dim,
+    seswoa    = SESWOA_ORDER,
+    inkomen   = INKOMEN_ORDER,
+    opleiding = OPLEIDING_ORDER,
+    leeftijd  = leeftijd_order,
+    character(0)
+  )
+}
+
 #' Relabel a (possibly ordered-factor) column through the shared Dictionary,
 #' preserving factor level order -- same approach as
 #' `relabel_column()`/`identity_fallback` in `utils/chart_downloads.R`, so an

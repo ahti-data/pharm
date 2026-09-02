@@ -85,6 +85,7 @@ ui <- fluidPage(
           sidebarLayout(
             sidebarPanel(
               selectInput("atc_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              uiOutput("atc_subgroep_picker"),
               radioButtons(
                 "atc_metric_group", "Indicator",
                 choices = c("Medicatieklasse (ATC)" = "atc", "Mono-/polyfarmacie" = "poly")
@@ -132,6 +133,7 @@ ui <- fluidPage(
       sidebarLayout(
         sidebarPanel(
           selectInput("ggz_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+          uiOutput("ggz_subgroep_picker"),
           radioButtons(
             "ggz_metric", "Maatstaf",
             choices = c(
@@ -166,6 +168,7 @@ ui <- fluidPage(
           sidebarLayout(
             sidebarPanel(
               selectInput("prev_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              uiOutput("prev_subgroep_picker"),
               conditionalPanel(
                 "input.prev_dim == 'totaal'",
                 checkboxGroupInput(
@@ -199,6 +202,7 @@ ui <- fluidPage(
           sidebarLayout(
             sidebarPanel(
               selectInput("angst_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
+              uiOutput("angst_subgroep_picker"),
               conditionalPanel(
                 "input.angst_dim != 'totaal'",
                 selectInput("angst_sg", "Subgroep angststoornis", choices = SG_GROEP_CHOICES)
@@ -279,6 +283,15 @@ server <- function(input, output, session) {
     checkboxGroupInput("atc_klassen", "Selecteer klasse(n)", choices = choices, selected = choices)
   })
 
+  output$atc_subgroep_picker <- renderUI({
+    req(input$atc_dim)
+    if (identical(input$atc_dim, "totaal")) return(NULL)
+    leeftijd_order <- if (identical(input$atc_dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
+    cats <- pharm_dim_categories(input$atc_dim, leeftijd_order)
+    choices <- setNames(cats, vapply(cats, pharm_pretty, character(1), scope = DIM_SCOPE_MAP[[input$atc_dim]]))
+    checkboxGroupInput("atc_subgroepen", "Categorieën", choices = choices, selected = cats)
+  })
+
   atc_subgroep_scope <- function(sel = NULL) {
     DIM_SCOPE_MAP[[opt(sel, "atc_dim")]]
   }
@@ -298,6 +311,11 @@ server <- function(input, output, session) {
         ATC_PREVALENTIE_DATA$metric_group == metric_group &
         ATC_PREVALENTIE_DATA$klasse %in% klassen,
     ]
+    if (!identical(dim, "totaal")) {
+      subgroepen <- opt(sel, "atc_subgroepen")
+      req(subgroepen)
+      df <- df[df$subgroep %in% subgroepen, ]
+    }
     klasse_levels <- if (identical(metric_group, "poly")) ATC_POLY_COLS else ATC_KLASSE_COLS
     df$klasse <- factor(df$klasse, levels = base::intersect(klasse_levels, unique(df$klasse)))
     leeftijd_order <- if (identical(dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
@@ -418,6 +436,14 @@ server <- function(input, output, session) {
 
   ## -- GGZ zorggebruik & kosten ----------------------------------------------
 
+  output$ggz_subgroep_picker <- renderUI({
+    req(input$ggz_dim)
+    if (identical(input$ggz_dim, "totaal")) return(NULL)
+    cats <- pharm_dim_categories(input$ggz_dim, LEEFTIJD_ORDER_17PLUS)
+    choices <- setNames(cats, vapply(cats, pharm_pretty, character(1), scope = DIM_SCOPE_MAP[[input$ggz_dim]]))
+    checkboxGroupInput("ggz_subgroepen", "Categorieën", choices = choices, selected = cats)
+  })
+
   ggz_subgroep_scope <- function(sel = NULL) {
     DIM_SCOPE_MAP[[opt(sel, "ggz_dim")]]
   }
@@ -440,6 +466,11 @@ server <- function(input, output, session) {
     dim <- opt(sel, "ggz_dim")
     metric <- opt(sel, "ggz_metric")
     df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == dim, ]
+    if (!identical(dim, "totaal")) {
+      subgroepen <- opt(sel, "ggz_subgroepen")
+      req(subgroepen)
+      df <- df[df$subgroep %in% subgroepen, ]
+    }
     df$categorie <- factor(df$categorie, levels = GGZ_CATEGORIE_ORDER)
     df$subgroep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     df$waarde <- if (identical(metric, "totale_kosten")) {
@@ -503,6 +534,14 @@ server <- function(input, output, session) {
 
   ## -- Prevalentie psychische aandoeningen: alle diagnosegroepen -------------
 
+  output$prev_subgroep_picker <- renderUI({
+    req(input$prev_dim)
+    if (identical(input$prev_dim, "totaal")) return(NULL)
+    cats <- pharm_dim_categories(input$prev_dim, LEEFTIJD_ORDER_17PLUS)
+    choices <- setNames(cats, vapply(cats, pharm_pretty, character(1), scope = DIM_SCOPE_MAP[[input$prev_dim]]))
+    checkboxGroupInput("prev_subgroepen", "Categorieën", choices = choices, selected = cats)
+  })
+
   prev_groep_scope <- function(sel = NULL) {
     if (identical(opt(sel, "prev_dim"), "totaal")) return("diagnosegroep")
     DIM_SCOPE_MAP[[opt(sel, "prev_dim")]]
@@ -532,6 +571,9 @@ server <- function(input, output, session) {
       diagnose_single <- opt(sel, "prev_diagnose_single")
       req(diagnose_single)
       df <- df[df$diagnosegroep == diagnose_single, ]
+      subgroepen <- opt(sel, "prev_subgroepen")
+      req(subgroepen)
+      df <- df[df$subgroep %in% subgroepen, ]
       df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
@@ -598,6 +640,14 @@ server <- function(input, output, session) {
 
   ## -- Prevalentie psychische aandoeningen: angststoornis naar subgroep -----
 
+  output$angst_subgroep_picker <- renderUI({
+    req(input$angst_dim)
+    if (identical(input$angst_dim, "totaal")) return(NULL)
+    cats <- pharm_dim_categories(input$angst_dim, LEEFTIJD_ORDER_17PLUS)
+    choices <- setNames(cats, vapply(cats, pharm_pretty, character(1), scope = DIM_SCOPE_MAP[[input$angst_dim]]))
+    checkboxGroupInput("angst_subgroepen", "Categorieën", choices = choices, selected = cats)
+  })
+
   angst_groep_scope <- function(sel = NULL) {
     if (identical(opt(sel, "angst_dim"), "totaal")) return("sg_groep")
     DIM_SCOPE_MAP[[opt(sel, "angst_dim")]]
@@ -623,6 +673,9 @@ server <- function(input, output, session) {
       sg <- opt(sel, "angst_sg")
       req(sg)
       df <- df[df$sg_groep == sg, ]
+      subgroepen <- opt(sel, "angst_subgroepen")
+      req(subgroepen)
+      df <- df[df$subgroep %in% subgroepen, ]
       df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
