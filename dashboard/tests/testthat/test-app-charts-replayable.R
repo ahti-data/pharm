@@ -70,14 +70,23 @@ test_that("a real chart rebuilds different data for different stored options", {
 
   with_isolated_app_state({
     shiny::testServer(app_dir, {
-      session$setInputs(ggz_dim = "leeftijd", ggz_metric = "totale_kosten")
+      # ggz_data_for() requires ggz_subgroepen whenever ggz_dim != "totaal"
+      # (added alongside the per-category (de)select feature) -- a stored
+      # selection set replaying a non-"totaal" dim must carry it too, same as
+      # a real favorite/history entry would (tc_ctx_selections() captures
+      # every one of this chart's own inputs, this one included).
+      ggz_subgroepen_leeftijd <- c("17-29", "30-49", "50-65", "66-75", "76-85", "86+")
+      session$setInputs(
+        ggz_dim = "leeftijd", ggz_metric = "totale_kosten",
+        ggz_subgroepen = ggz_subgroepen_leeftijd
+      )
       session$flushReact()
 
       reg <- tc_chart_registry_get(session, "ggz_kosten_dl")
       skip_if(is.null(reg), "ggz_kosten_dl not registered")
 
       live  <- reg$get_spec()
-      other <- reg$get_spec(list(ggz_dim = "leeftijd", ggz_metric = "gebruikers"))
+      other <- reg$get_spec(list(ggz_dim = "leeftijd", ggz_metric = "gebruikers", ggz_subgroepen = ggz_subgroepen_leeftijd))
 
       # A different stored metric must yield a different figure, even though the
       # live inputs never changed.
@@ -88,7 +97,10 @@ test_that("a real chart rebuilds different data for different stored options", {
       expect_equal(live$selections$ggz_metric, "totale_kosten")
 
       for (m in c("totale_kosten", "gebruikers", "gem_kosten_per_gebr", "prevalentie")) {
-        expect_equal(reg$get_spec(list(ggz_dim = "leeftijd", ggz_metric = m))$selections$ggz_metric, m)
+        expect_equal(
+          reg$get_spec(list(ggz_dim = "leeftijd", ggz_metric = m, ggz_subgroepen = ggz_subgroepen_leeftijd))$selections$ggz_metric,
+          m
+        )
       }
     })
   })
@@ -111,6 +123,9 @@ test_that("a replayed spec is identical no matter what the live inputs hold", {
       skip_if(is.null(reg), "ggz_kosten_dl not registered")
 
       metrics <- c("totale_kosten", "gebruikers", "gem_kosten_per_gebr", "prevalentie")
+      # ggz_data_for() requires ggz_subgroepen whenever ggz_dim != "totaal" --
+      # see the matching note in the test above.
+      ggz_subgroepen_leeftijd <- c("17-29", "30-49", "50-65", "66-75", "76-85", "86+")
 
       # For each stored metric, rebuild it twice: once while the live input
       # happens to MATCH it, once while it doesn't. A branch that tests the
@@ -119,10 +134,10 @@ test_that("a replayed spec is identical no matter what the live inputs hold", {
       # live states that both differ from the stored one would agree even with
       # the bug, which is why one of them must be the stored value itself.)
       for (m in metrics) {
-        stored <- list(ggz_dim = "leeftijd", ggz_metric = m)
+        stored <- list(ggz_dim = "leeftijd", ggz_metric = m, ggz_subgroepen = ggz_subgroepen_leeftijd)
         other  <- setdiff(metrics, m)[[1]]
 
-        session$setInputs(ggz_dim = "leeftijd", ggz_metric = m)
+        session$setInputs(ggz_dim = "leeftijd", ggz_metric = m, ggz_subgroepen = ggz_subgroepen_leeftijd)
         session$flushReact()
         matching <- reg$get_spec(stored)
 

@@ -101,7 +101,7 @@ ui <- fluidPage(
               h4("Data in de grafiek"),
               tableOutput("atc_table"),
               br(),
-              chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar")
+              chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar", offer_n = TRUE)
             )
           )
         ),
@@ -154,7 +154,7 @@ ui <- fluidPage(
           h4("Data in de grafiek"),
           tableOutput("ggz_table"),
           br(),
-          chart_data_downloads_ui("ggz_kosten_dl", chart_type = "grouped_bar")
+          chart_data_downloads_ui("ggz_kosten_dl", chart_type = "grouped_bar", offer_n = TRUE, offer_count = TRUE)
         )
       )
     ),
@@ -192,7 +192,7 @@ ui <- fluidPage(
               h4("Data in de grafiek"),
               tableOutput("prev_table"),
               br(),
-              chart_data_downloads_ui("prev_diag_dl", chart_type = "line")
+              chart_data_downloads_ui("prev_diag_dl", chart_type = "line", offer_n = TRUE)
             )
           )
         ),
@@ -218,7 +218,7 @@ ui <- fluidPage(
               h4("Data in de grafiek"),
               tableOutput("angst_table"),
               br(),
-              chart_data_downloads_ui("angst_dl", chart_type = "grouped_bar")
+              chart_data_downloads_ui("angst_dl", chart_type = "grouped_bar", offer_n = TRUE)
             )
           )
         )
@@ -370,7 +370,8 @@ server <- function(input, output, session) {
     figure_title = atc_title,
     data_for = atc_data_for,
     source_output = "iteration0_atc.xlsx",
-    source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
+    source_mtime = tc_format_source_mtime(PHARM_ATC_FILE),
+    n_col = "n"
   )
 
   ## -- Medicatiegebruik (ATC): meest voorkomende combinaties -----------------
@@ -529,7 +530,9 @@ server <- function(input, output, session) {
     figure_title = ggz_title,
     data_for = ggz_data_for,
     source_output = "iteration0_ggz.xlsx",
-    source_mtime = tc_format_source_mtime(PHARM_GGZ_FILE)
+    source_mtime = tc_format_source_mtime(PHARM_GGZ_FILE),
+    n_col = "n_17plus",
+    count_col = "gebruikers"
   )
 
   ## -- Prevalentie psychische aandoeningen: alle diagnosegroepen -------------
@@ -577,7 +580,7 @@ server <- function(input, output, session) {
       df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
-    df[, c("dim", "jaar", "groep", "prevalentie")]
+    df[, c("dim", "jaar", "groep", "prevalentie", "n_pop")]
   }
 
   prev_data_raw <- reactive(prev_data_for(NULL))
@@ -635,7 +638,8 @@ server <- function(input, output, session) {
     figure_title = prev_title,
     data_for = prev_data_for,
     source_output = "prevalenties.xlsx",
-    source_mtime = tc_format_source_mtime(PHARM_PREV_FILE)
+    source_mtime = tc_format_source_mtime(PHARM_PREV_FILE),
+    n_col = "n_pop"
   )
 
   ## -- Prevalentie psychische aandoeningen: angststoornis naar subgroep -----
@@ -679,7 +683,7 @@ server <- function(input, output, session) {
       df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
     }
     df$jaar <- as.integer(df$jaar)
-    df[, c("dim", "jaar", "groep", "prevalentie")]
+    df[, c("dim", "jaar", "groep", "prevalentie", "n_pop")]
   }
 
   angst_data_raw <- reactive(angst_data_for(NULL))
@@ -724,7 +728,8 @@ server <- function(input, output, session) {
     figure_title = angst_title,
     data_for = angst_data_for,
     source_output = "prevalenties_angst_22_24.xlsx",
-    source_mtime = tc_format_source_mtime(PHARM_ANGST_FILE)
+    source_mtime = tc_format_source_mtime(PHARM_ANGST_FILE),
+    n_col = "n_pop"
   )
 
   favorites_panel_server("favorites")

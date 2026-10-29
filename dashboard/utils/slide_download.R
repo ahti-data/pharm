@@ -197,6 +197,44 @@ tc_registry_spec <- function(reg, selections = NULL) {
   reg$get_spec(selections)
 }
 
+#' Whether a registered chart's `get_spec` accepts the "Include N"/"Include
+#' Aantal"/"Opslaan met N=" replay flags (`include_n`/`include_count`/
+#' `n_equals`) alongside `selections` -- see `chart_data_downloads_server()`'s
+#' `n_col`/`count_col` params. A narrower registration (older code, or a
+#' hand-rolled test registration) may not -- [tc_registry_spec_with_n()] falls
+#' back to the plain selections-only call in that case.
+#' @param f A function from a registry entry (typically `reg$get_spec`).
+tc_accepts_n_flags <- function(f) {
+  if (!is.function(f)) return(FALSE)
+  fmls <- names(formals(f))
+  all(c("include_n", "include_count", "n_equals") %in% fmls) || "..." %in% fmls
+}
+
+#' Like [tc_registry_spec()], but additionally replays a favorite's stored
+#' "Include N"/"Include Aantal"/"Opslaan met N=" checkbox state when the
+#' registered chart's `get_spec()` supports them (see
+#' `chart_data_downloads_server()`'s `n_col`/`count_col` params) -- used only
+#' by favorites (`favorites_live_spec_or_null()` in `utils/favorites.R`),
+#' never by Export History's own regenerate path, which has no concept of
+#' these flags. Falls back to [tc_registry_spec()] when it can't (no
+#' `n_col`/`count_col` wired on this chart, or an older/narrower
+#' registration) -- the extra flags are then simply dropped, same as a
+#' favorite saved before this feature existed.
+#' @param reg A registry entry (from [tc_chart_registry_get()]).
+#' @param selections Named list of stored option values, or `NULL` for live.
+#' @param include_n,include_count,n_equals The favorite's own stored checkbox
+#'   state (see `favorites_capture()`).
+tc_registry_spec_with_n <- function(reg, selections = NULL, include_n = FALSE,
+                                     include_count = FALSE, n_equals = FALSE) {
+  if (is.null(reg) || !is.function(reg$get_spec)) return(NULL)
+  if (!tc_accepts_n_flags(reg$get_spec)) return(tc_registry_spec(reg, selections))
+  n_args <- list(include_n = include_n, include_count = include_count, n_equals = n_equals)
+  if (is.null(selections) || !tc_accepts_selections(reg$get_spec)) {
+    return(do.call(reg$get_spec, n_args))
+  }
+  do.call(reg$get_spec, c(list(selections), n_args))
+}
+
 #' Assert that every registered chart can rebuild against a *stored* option set.
 #'
 #' A chart wired without `data_for` (see `chart_data_downloads_server()`) can

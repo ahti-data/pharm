@@ -152,6 +152,12 @@ if (!window.__tcChartCaptureInit) {
 #'   silently falling back to whatever order the data happens to arrive in.
 #'   Still just the *default* -- the dropdown remains user-changeable per
 #'   download.
+#' @param offer_n When `TRUE`, shows an "Include N" checkbox next to "Save as
+#'   favorite" -- see `chart_data_downloads_server()`'s `n_col` param for what
+#'   it does. Requires `n_col` to be wired on the server side to have any
+#'   effect; defaults to `FALSE` for every chart that doesn't pass it.
+#' @param offer_count Same as `offer_n`, for the independent "Include Aantal"
+#'   checkbox -- see `chart_data_downloads_server()`'s `count_col` param.
 chart_data_downloads_ui <- function(
     id,
     chart_type,
@@ -160,7 +166,9 @@ chart_data_downloads_ui <- function(
     slide_label = "Download slides",
     favorite_label = "☆ Save as favorite",
     plot_output_id = NULL,
-    default_slide_order = "auto"
+    default_slide_order = "auto",
+    offer_n = FALSE,
+    offer_count = FALSE
 ) {
   ns <- shiny::NS(id)
 
@@ -249,6 +257,9 @@ chart_data_downloads_ui <- function(
           # live widget from Export History's or Favorites' bulk downloads.
           `data-plot-output-id` = plot_output_id,
           `data-module-id` = id,
+          if (offer_n) shiny::checkboxInput(ns("favorite_include_n"), "Include N", value = FALSE),
+          if (offer_count) shiny::checkboxInput(ns("favorite_include_count"), "Include Aantal", value = FALSE),
+          if (offer_n || offer_count) shiny::checkboxInput(ns("favorite_n_equals"), "Opslaan met N=", value = FALSE),
           shiny::actionButton(ns("favorite"), favorite_label,
                               class = "btn-default",
                               style = "margin-top:8px;"),
@@ -340,6 +351,27 @@ chart_data_downloads_ui <- function(
 #'   column names (e.g. every chart's raw data using "category"/"series")
 #'   should pass the real scope explicitly, or downloads will fall back to
 #'   dictionary_default_prettify() instead of the intended lookup.
+#' @param n_col Optional column in `data()` holding the sample size/population
+#'   ("N") behind whatever metric `value_col` currently shows (e.g. the total
+#'   17+ population a prevalence rate was computed against). May be a plain
+#'   string or a reactive/function (like `slide_title`/`data_for`, i.e.
+#'   `function(sel)`) for a chart whose metric choice changes what "N" even
+#'   means. When set, `chart_data_downloads_ui(offer_n = TRUE)` shows an
+#'   "Include N" checkbox next to "Save as favorite": a favorite starred with
+#'   it checked gets an extra "N: ..." row appended to its own think-cell
+#'   table at every later (re)download -- not the raw download, which already
+#'   carries every raw column including this one, and never the rendered
+#'   slide, which keeps showing only the chart's own data -- see
+#'   `favorites_with_extra_rows()` in `utils/favorites.R`. Omit for a chart
+#'   with no such concept.
+#' @param count_col Optional column in `data()` holding the numerator -- how
+#'   many people the currently-shown metric is actually counting, as distinct
+#'   from `n_col`'s population it was computed *against*. Independent of
+#'   `n_col`: a chart can offer either, both, or neither. When set,
+#'   `chart_data_downloads_ui(offer_count = TRUE)` shows an "Include Aantal"
+#'   checkbox; a favorite starred with it checked gets an extra "Aantal: ..."
+#'   row appended to its own think-cell table, the same way `n_col`/
+#'   "Include N" adds an "N: ..." row.
 chart_data_downloads_server <- function(
     id,
     data,
@@ -362,7 +394,9 @@ chart_data_downloads_server <- function(
     source_mtime = NULL,
     category_scope = NULL,
     series_scope = NULL,
-    data_for = NULL
+    data_for = NULL,
+    n_col = NULL,
+    count_col = NULL
 ) {
   shiny::moduleServer(id, function(input, output, session) {
     # `sel` is a stored selection set being replayed (from a favorite/history
@@ -748,7 +782,27 @@ chart_data_downloads_server <- function(
       # without writing a standalone ZIP for it first. raw_data is only
       # consumed by favorites' "raw" bulk download -- build_export_now()
       # and Export History never read it.
-      build_export_spec <- function(selections = NULL) {
+      # Turns every value cell of a think-cell-shaped table (as `build_aux_table()`
+      # below produces) into literal "N=<number>" text -- see
+      # chart_data_downloads_ui()'s "Opslaan met N=" checkbox. Mirrors how a
+      # plain numeric table is normally written, just as text instead of a
+      # number, so a pasted-into-slide "N=" row reads correctly without manual
+      # relabeling. A faceted table (a per-facet named list) is handled
+      # recursively, same as every other per-facet helper here.
+      format_n_equals <- function(tbl) {
+        if (is.null(tbl)) return(tbl)
+        if (is_tc_workbook_list(tbl)) return(lapply(tbl, format_n_equals))
+        value_cols <- setdiff(names(tbl), names(tbl)[1])
+        for (col in value_cols) {
+          tbl[[col]] <- ifelse(
+            is.na(tbl[[col]]), NA_character_,
+            paste0("N=", format(tbl[[col]], big.mark = "", scientific = FALSE, trim = TRUE))
+          )
+        }
+        tbl
+      }
+
+      build_export_spec <- function(selections = NULL, include_n = FALSE, include_count = FALSE, n_equals = FALSE) {
         resolved_chart_type <- resolve_tc_chart_type(chart_type)
 
         # Replaying a favorite/history entry's stored options, when it has them
@@ -806,6 +860,40 @@ chart_data_downloads_server <- function(
           tc_data <- df_export
         }
 
+        # Only built when a favorite is actually being starred (or replayed)
+        # with "Include N"/"Include Aantal" set -- never for a solo download
+        # or the plain slide ZIP, which have no use for either. Same category/
+        # series pivot as tc_data, just over n_col/count_col instead of
+        # value_col, so each aligns column-for-column with tc_data (see
+        # favorites_with_extra_rows() in utils/favorites.R, which appends
+        # these below the data row(s)).
+        build_aux_table <- function(col) {
+          tryCatch(
+            format_tc_data(
+              df = df_export,
+              chart_type = resolved_chart_type,
+              category_col = category_col,
+              series_col = series_col,
+              value_col = col,
+              agg_fun = agg_fun,
+              category_order = cat_order,
+              series_order = ser_order,
+              waterfall_end_col = waterfall_end_col,
+              waterfall_subtotal_cols = waterfall_subtotal_cols,
+              facet_col = facet_col
+            ),
+            error = function(e) NULL
+          )
+        }
+
+        resolved_n_col <- resolve_opt(n_col, sel)
+        n_table <- if (isTRUE(include_n) && nzchar(resolved_n_col)) build_aux_table(resolved_n_col) else NULL
+        if (isTRUE(n_equals)) n_table <- format_n_equals(n_table)
+
+        resolved_count_col <- resolve_opt(count_col, sel)
+        count_table <- if (isTRUE(include_count) && nzchar(resolved_count_col)) build_aux_table(resolved_count_col) else NULL
+        if (isTRUE(n_equals)) count_table <- format_n_equals(count_table)
+
         if (!tc_template_available(resolved_chart_type)) {
           shiny::showNotification(
             paste0("No suitable think-cell template for the displayed chart ",
@@ -844,6 +932,8 @@ chart_data_downloads_server <- function(
           tc_data = tc_data,
           raw_data = df_export,
           chart_type = slide_type,
+          n_table = n_table,
+          count_table = count_table,
           slide_matrix = slide_matrix,
           is_faceted = !is.null(facet_col) || is_tc_workbook_list(tc_data),
           slide_title = resolve_opt(slide_title, sel),
@@ -1043,7 +1133,16 @@ chart_data_downloads_server <- function(
           # "" for auto-detect) -- persisted on the favorite so a later
           # download uses the template the user actually picked, not whatever
           # the live picker has reset to. See favorites_capture().
-          template_override = slide_effective_override()
+          template_override = slide_effective_override(),
+          # The "Include N"/"Include Aantal"/"Opslaan met N=" checkboxes right
+          # now -- persisted the same way as template_override (a user
+          # preference tied to the bookmark, applied on every later live
+          # rebuild via favorites_live_spec_or_null()), not display-only
+          # star-time metadata. isTRUE() so a chart with no offer_n/offer_count
+          # (hence no such input) always persists FALSE.
+          include_n         = isTRUE(input$favorite_include_n),
+          include_count     = isTRUE(input$favorite_include_count),
+          n_equals          = isTRUE(input$favorite_n_equals)
         )
         favorites_add(entry)
         favorite_status_rv(sprintf("Saved '%s' to favorites.", entry$label))

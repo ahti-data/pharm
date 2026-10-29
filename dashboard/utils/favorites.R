@@ -180,6 +180,14 @@ favorites_table_to_storage <- function(df) {
 #'   [favorites_prepare_live_spec()]) so the favorite always uses the template
 #'   the user picked, instead of the live picker's default (which resets to
 #'   auto whenever the chart is remounted or opened in a fresh session).
+#' @param include_n,include_count,n_equals Optional logicals -- the "Include
+#'   N"/"Include Aantal"/"Opslaan met N=" checkboxes' state when this favorite
+#'   was starred (see `chart_data_downloads_ui()`'s `offer_n`/`offer_count`).
+#'   Like `template_override`, these are persisted user *preferences*, not
+#'   display-only metadata: a live rebuild at download time applies them (see
+#'   [favorites_live_spec_or_null()]) so the favorite always carries the
+#'   extra N/Aantal row(s) it was starred with, instead of whatever the live
+#'   chart's checkboxes currently show.
 #' @return A list ready for [favorites_add()].
 favorites_capture <- function(
     chart_type,
@@ -189,7 +197,10 @@ favorites_capture <- function(
     module_id = NULL,
     filename_prefix = "chart", label = NULL,
     dictionary_format = NULL,
-    template_override = NULL
+    template_override = NULL,
+    include_n = NULL,
+    include_count = NULL,
+    n_equals = NULL
 ) {
   # tc_or() only falls back on NULL, not on "" — and tc_ctx_active_subtab()
   # legitimately returns "" whenever the app hasn't registered a nav/subtab
@@ -212,7 +223,10 @@ favorites_capture <- function(
     selections      = selections,
     module_id       = module_id,
     dictionary_format = isTRUE(dictionary_format),
-    template_override = if (is.null(template_override)) "" else template_override
+    template_override = if (is.null(template_override)) "" else template_override,
+    include_n       = isTRUE(include_n),
+    include_count   = isTRUE(include_count),
+    n_equals        = isTRUE(n_equals)
   )
 }
 
@@ -464,8 +478,13 @@ tc_build_slide_deck_zip <- function(specs, zip_path, ppttc_exe = NULL) {
 #' slides" ZIP ([tc_build_deck_from_specs()]/[tc_write_deck_files()]), and any
 #' other combined think-cell table all go through here, so they're identical
 #' by construction (same sheets, same corner-cell logs).
-#' @param specs List of `list(label, tc_table, datasheet_log = NULL)`. A spec
-#'   with no `datasheet_log` is written unstamped (tc_stamp_tc_matrix_corner()
+#' @param specs List of `list(label, tc_table, tc_sheet = NULL, datasheet_log =
+#'   NULL)`. `tc_sheet` (when present) is written instead of `tc_table` -- the
+#'   same table, with a favorite's own N/Aantal row(s) appended (see
+#'   [favorites_with_extra_rows()]); callers with no such concept (e.g. Export
+#'   History's own regenerate specs) simply omit it and get `tc_table`
+#'   unchanged, same as before this field existed. A spec with no
+#'   `datasheet_log` is written unstamped (tc_stamp_tc_matrix_corner()
 #'   no-ops on an empty log).
 #' @param path Output `.xlsx` path.
 #' @return `path`, invisibly.
@@ -477,7 +496,7 @@ tc_build_thinkcell_xlsx_from_specs <- function(specs, path) {
   }
   labels <- sanitize_excel_sheet_names(vapply(specs, function(s) tc_or(s$label, "chart"), character(1)))
   sheets <- stats::setNames(
-    lapply(specs, function(s) tc_stamp_tc_matrix_corner(as_df(s$tc_table), s$datasheet_log)),
+    lapply(specs, function(s) tc_stamp_tc_matrix_corner(as_df(tc_or(s$tc_sheet, s$tc_table)), s$datasheet_log)),
     labels
   )
   write_tc_xlsx(sheets, path)
@@ -523,9 +542,59 @@ favorites_live_spec_or_null <- function(entry, session) {
   # falls back to live inputs, and reports the live selections, when it has no
   # data_for() to replay with (see chart_data_downloads_server()).
   sel <- if (length(entry$selections) > 0) entry$selections else NULL
-  spec <- tryCatch(tc_registry_spec(reg, sel), error = function(e) NULL)
+  spec <- tryCatch(
+    tc_registry_spec_with_n(
+      reg, sel,
+      include_n = isTRUE(entry$include_n),
+      include_count = isTRUE(entry$include_count),
+      n_equals = isTRUE(entry$n_equals)
+    ),
+    error = function(e) NULL
+  )
   if (is.null(spec) || isTRUE(spec$is_faceted)) return(NULL)
   spec
+}
+
+#' A spec's auxiliary matrix stored under `field` (`"n_table"` or
+#' `"count_table"`, see `build_export_spec()` in `utils/chart_downloads.R`) as
+#' a plain data frame -- same category columns, in the same order, as the
+#' spec's own `tc_data`/`slide_matrix`, so the two can be stacked. `NULL` when
+#' the spec has no table under that field (the chart isn't wired with
+#' `n_col`/`count_col`, the matching "Include .../" checkbox wasn't checked
+#' for this favorite, or this chart has no `data_for()`-replay support for
+#' the N/count flags at all -- see `tc_registry_spec_with_n()`).
+#' @param spec A live spec (from [favorites_live_spec_or_null()]).
+#' @param field `"n_table"` or `"count_table"`.
+favorites_aux_sheet <- function(spec, field) {
+  if (is.null(spec[[field]])) return(NULL)
+  as.data.frame(spec[[field]], stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+#' Append a spec's N and/or Aantal row(s) (if any -- see
+#' [favorites_aux_sheet()]) below `table`, each prefixed `"Aantal: "`/`"N: "`
+#' to distinguish them from the data row(s) above and from each other --
+#' Aantal (the numerator: how many people the data row is actually counting,
+#' from `count_col`) first, then N (the denominator it was computed against,
+#' from `n_col`) -- independent of each other, so a favorite can carry
+#' either, both, or neither. This is what "Include N"/"Include Aantal"
+#' actually add -- a favorite's own combined think-cell workbook sheet only
+#' (see `tc_sheet` in [favorites_prepare_live_spec()]), never the rendered
+#' slide's own embedded chart table (`tc_table`, untouched) and never the
+#' raw download (which already carries every raw column, both included,
+#' unreshaped). Falls through unchanged for whichever of the two doesn't line
+#' up column-for-column with `table` (defensive; shouldn't happen since all
+#' three come from the same category/series pivot).
+#' @param table A data frame, same shape as the spec's own `tc_data`/
+#'   `slide_matrix`.
+#' @param spec The same spec `table` was built from.
+favorites_with_extra_rows <- function(table, spec) {
+  append_if_aligned <- function(tbl, sheet, prefix) {
+    if (is.null(sheet) || !identical(names(tbl), names(sheet))) return(tbl)
+    sheet[[1]] <- paste0(prefix, sheet[[1]])
+    rbind(tbl, sheet)
+  }
+  table <- append_if_aligned(table, favorites_aux_sheet(spec, "count_table"), "Aantal: ")
+  append_if_aligned(table, favorites_aux_sheet(spec, "n_table"), "N: ")
 }
 
 #' Live `list(label, tc_table, raw_table)` for one favorite -- for the plain
@@ -540,7 +609,10 @@ favorites_prepare_live_table <- function(entry, session) {
   if (is.null(spec)) return(NULL)
   list(
     label = tc_or(entry$label, "favorite"),
-    tc_table = as.data.frame(tc_or(spec$slide_matrix, spec$tc_data), stringsAsFactors = FALSE, check.names = FALSE),
+    tc_table = favorites_with_extra_rows(
+      as.data.frame(tc_or(spec$slide_matrix, spec$tc_data), stringsAsFactors = FALSE, check.names = FALSE),
+      spec
+    ),
     raw_table = if (!is.null(spec$raw_data)) as.data.frame(spec$raw_data, stringsAsFactors = FALSE, check.names = FALSE) else NULL
   )
 }
@@ -645,9 +717,17 @@ favorites_prepare_live_spec <- function(entry, session, favorite_download_id = N
   asset_path <- if (is.na(download_id)) NULL else export_history_asset_path(download_id)
   if (!is.null(asset_path)) tc_write_captured_asset(captured_image, asset_path)
 
+  base_table <- as.data.frame(slide_matrix, stringsAsFactors = FALSE, check.names = FALSE)
+
   list(
     label = label,
-    tc_table = as.data.frame(slide_matrix, stringsAsFactors = FALSE, check.names = FALSE),
+    # Embedded in the rendered slide's own chart -- never gets N/Aantal rows
+    # (see favorites_with_extra_rows()'s own doc comment).
+    tc_table = base_table,
+    # The combined think-cell workbook's sheet for this favorite (see
+    # tc_build_thinkcell_xlsx_from_specs()) -- same table, with this
+    # favorite's own stored N/Aantal row(s) appended, if any.
+    tc_sheet = favorites_with_extra_rows(base_table, live_spec),
     raw_table = if (!is.null(live_spec$raw_data)) as.data.frame(live_spec$raw_data, stringsAsFactors = FALSE, check.names = FALSE) else NULL,
     chart_type = live_spec$chart_type,
     template_path = tpl_path,
@@ -835,6 +915,23 @@ tc_dictionary_badge_ui <- function(dictionary_format, note = NULL) {
       "display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; ",
       "border-radius:8px; margin-left:6px; vertical-align:middle; ",
       if (on) "background:#DCFCE7; color:#166534;" else "background:#F3F4F6; color:#6B7280;"
+    ),
+    label
+  )
+}
+
+#' A small blue badge for a Favorites row, flagging that this favorite was
+#' starred with "Include N"/"Include Aantal"/"Opslaan met N=" checked (see
+#' `chart_data_downloads_ui()`'s `offer_n`/`offer_count`) -- shown only when
+#' the corresponding flag is `TRUE` on the entry (callers wrap each use in
+#' `if (isTRUE(e$...))`, same as [tc_dictionary_badge_ui()]'s caller).
+#' @param label Badge text, e.g. `"Includes N"`.
+tc_n_badge_ui <- function(label) {
+  shiny::tags$span(
+    style = paste0(
+      "display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; ",
+      "border-radius:8px; margin-left:6px; vertical-align:middle; ",
+      "background:#DBEAFE; color:#1E40AF;"
     ),
     label
   )
@@ -1031,6 +1128,9 @@ favorites_panel_server <- function(id, poll_interval_ms = 2000, tab_label_filter
               # Reflects the checkbox when this favorite was starred; a live
               # rebuild at download time uses the chart's current checkbox.
               tc_dictionary_badge_ui(e$dictionary_format, note = "at star time"),
+              if (isTRUE(e$include_count)) tc_n_badge_ui("Includes Aantal"),
+              if (isTRUE(e$include_n)) tc_n_badge_ui("Includes N"),
+              if (isTRUE(e$n_equals)) tc_n_badge_ui("N="),
               details
             )
           ),
