@@ -1011,7 +1011,20 @@ favorites_panel_server <- function(id, poll_interval_ms = 2000, tab_label_filter
             style = "display:flex; gap:8px; align-items:flex-start;",
             shiny::tags$div(
               class = "tc-row-checkbox",
-              shiny::checkboxInput(session$ns(paste0("sel_", e$id)), NULL, value = isTRUE(selected[[e$id]]))
+              # isolate(): reading selected[[e$id]] here is only to seed this
+              # checkbox's initial value -- it must NOT make output$list
+              # (which this value= is built inside) reactively depend on
+              # `selected`. Without isolate(), every single checkbox click
+              # invalidates output$list, which rebuilds and resends the
+              # *entire* favorites list (every row, every checkbox) over the
+              # websocket -- visible as flickering, and with several favorites
+              # selected in quick succession, each click waits for the
+              # previous full rebuild, making the tab feel frozen. Selection
+              # state itself still updates correctly (via the observeEvent
+              # below plus shiny::updateCheckboxInput() in the "Select all"/
+              # "Clear selection" handlers) without ever needing a list
+              # rebuild for that alone.
+              shiny::checkboxInput(session$ns(paste0("sel_", e$id)), NULL, value = shiny::isolate(isTRUE(selected[[e$id]])))
             ),
             shiny::tags$div(
               shiny::tags$strong(tc_or(e$label, "(untitled)")),

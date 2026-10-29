@@ -913,7 +913,13 @@ export_history_panel_server <- function(id, poll_interval_ms = 2000, display_lim
           style = "display:flex; gap:8px; align-items:flex-start;",
           shiny::tags$div(
             class = "tc-row-checkbox",
-            shiny::checkboxInput(session$ns(paste0("sel_", e$id)), NULL, value = isTRUE(selected[[e$id]]))
+            # isolate(): see the matching note in utils/favorites.R's
+            # output$list -- reading selected[[e$id]] unisolated here would
+            # make output$list (this is called from inside it) reactively
+            # depend on `selected`, so every checkbox click would rebuild and
+            # resend the *entire* history list, flickering and, with several
+            # rows clicked in quick succession, making the tab feel frozen.
+            shiny::checkboxInput(session$ns(paste0("sel_", e$id)), NULL, value = shiny::isolate(isTRUE(selected[[e$id]])))
           ),
           shiny::tags$div(
             shiny::tags$strong(tc_or(e$label, "(untitled)")),
@@ -947,9 +953,13 @@ export_history_panel_server <- function(id, poll_interval_ms = 2000, display_lim
       # This checkbox isn't its own selection -- it's a "select every member
       # of this group" convenience, reflecting (and driving) the members' own
       # checkboxes below rather than a unit of its own, so a specific chart
-      # within a bulk download can still be picked out on its own.
-      all_selected <- length(g$members) > 0 &&
-        all(vapply(g$members, function(m) isTRUE(selected[[m$id]]), logical(1)))
+      # within a bulk download can still be picked out on its own. isolate()
+      # for the same reason as entry_row_ui()'s own checkbox -- this is also
+      # evaluated inside output$list.
+      all_selected <- shiny::isolate(
+        length(g$members) > 0 &&
+          all(vapply(g$members, function(m) isTRUE(selected[[m$id]]), logical(1)))
+      )
       shiny::tags$div(
         style = "padding:8px 0; border-bottom:1px solid #eee;",
         shiny::tags$div(
