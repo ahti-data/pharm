@@ -47,6 +47,14 @@ GGZ_KOSTEN_DATA       <- load_ggz_kosten()
 PREV_DIAGNOSE_DATA    <- load_prevalentie_diagnoses()
 ANGST_DATA            <- load_angst_subgroepen()
 
+# "ses analysis"-data: dezelfde uitkomsten als hierboven, maar dan per
+# SES-variabele uit SES_BREAKDOWN_VARS, optioneel verder uitgesplitst naar
+# leeftijd en/of geslacht (zie ses_filter() in utils/pharm_data.R).
+ATC_SES_DATA        <- load_atc_ses()
+GGZ_KOSTEN_SES_DATA <- load_ggz_kosten_ses()
+PREV_SES_DATA       <- load_prevalentie_ses()
+TELLINGEN_DATA      <- load_tellingen_algemeen()
+
 pharm_dim_label <- function(dim) {
   names(DIM_CHOICES)[DIM_CHOICES == dim]
 }
@@ -63,6 +71,19 @@ DIAGNOSEGROEP_CHOICES <- setNames(
 )
 DIAGNOSEGROEP_DEFAULT <- c("depr_stemming_stoornis", "angststoornis", "persoonlijkheidstoornis", "middelger_versl_stoornis")
 SG_GROEP_CHOICES <- setNames(SG_GROEP_COLS, vapply(SG_GROEP_COLS, pharm_pretty, character(1), scope = "sg_groep"))
+
+# The 8 SES-variabelen, in the same order/pretty-labels as DIM_CHOICES --
+# for the "Tellingen algemeen" tab's own dropdown (see TELLINGEN_DATA).
+TELLINGEN_VAR_CHOICES <- DIM_CHOICES[DIM_CHOICES %in% SES_BREAKDOWN_VARS]
+
+# JS array literal of SES_BREAKDOWN_VARS, for conditionalPanel()'s client-side
+# `input.prev_dim` checks on the "Alle diagnosegroepen" tab -- that chart
+# switches from a line-over-jaar to a bar-over-SES-categorie view for these
+# 8 dims (geen jaar-reeks beschikbaar; zie PREV_SES_DATA), so both views'
+# UI needs a plain JS condition, not an R one.
+SES_BREAKDOWN_VARS_JS <- paste0("[", paste(sprintf("'%s'", SES_BREAKDOWN_VARS), collapse = ","), "]")
+PREV_DIM_IS_SES_JS <- sprintf("%s.indexOf(input.prev_dim) !== -1", SES_BREAKDOWN_VARS_JS)
+PREV_DIM_NOT_SES_JS <- sprintf("%s.indexOf(input.prev_dim) === -1", SES_BREAKDOWN_VARS_JS)
 
 ui <- fluidPage(
   tc_tab_color_theme(ahti_branding),
@@ -86,6 +107,7 @@ ui <- fluidPage(
             sidebarPanel(
               selectInput("atc_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
               uiOutput("atc_subgroep_picker"),
+              uiOutput("atc_ses_breakdown_picker"),
               radioButtons(
                 "atc_metric_group", "Indicator",
                 choices = c("Medicatieklasse (ATC)" = "atc", "Mono-/polyfarmacie" = "poly")
@@ -134,15 +156,8 @@ ui <- fluidPage(
         sidebarPanel(
           selectInput("ggz_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
           uiOutput("ggz_subgroep_picker"),
-          radioButtons(
-            "ggz_metric", "Maatstaf",
-            choices = c(
-              "Totale kosten (mln euro)" = "totale_kosten",
-              "Aantal gebruikers" = "gebruikers",
-              "Gemiddelde kosten per gebruiker (euro)" = "gem_kosten_per_gebr",
-              "Prevalentie (per 1.000 personen, 17+)" = "prevalentie"
-            )
-          ),
+          uiOutput("ggz_ses_breakdown_picker"),
+          uiOutput("ggz_metric_picker"),
           helpText(
             "Basis-GGZ, specialistische GGZ (ambulant) en specialistische GGZ (met verblijf), ",
             "op basis van GGZ ZPM-prestatiedata 2024. Prevalentie = aantal gebruikers gedeeld ",
@@ -169,6 +184,7 @@ ui <- fluidPage(
             sidebarPanel(
               selectInput("prev_dim", "Uitsplitsing naar", choices = DIM_CHOICES, selected = "totaal"),
               uiOutput("prev_subgroep_picker"),
+              uiOutput("prev_ses_breakdown_picker"),
               conditionalPanel(
                 "input.prev_dim == 'totaal'",
                 checkboxGroupInput(
@@ -180,19 +196,40 @@ ui <- fluidPage(
                 "input.prev_dim != 'totaal'",
                 selectInput("prev_diagnose_single", "Diagnosegroep", choices = DIAGNOSEGROEP_CHOICES)
               ),
-              checkboxInput("prev_show_zpm_line", "Toon startjaar ZPM-prestatiemodel (2022)", value = TRUE),
-              helpText(
-                "Let op: vanaf 2022 is de onderliggende registratie omgezet van Vektis-declaraties ",
-                "naar GGZ ZPM-prestaties. Dit kan een trendbreuk geven, vooral in de categorie ",
-                "'onbekend / geen diagnose geregistreerd'."
+              conditionalPanel(
+                PREV_DIM_NOT_SES_JS,
+                checkboxInput("prev_show_zpm_line", "Toon startjaar ZPM-prestatiemodel (2022)", value = TRUE),
+                helpText(
+                  "Let op: vanaf 2022 is de onderliggende registratie omgezet van Vektis-declaraties ",
+                  "naar GGZ ZPM-prestaties. Dit kan een trendbreuk geven, vooral in de categorie ",
+                  "'onbekend / geen diagnose geregistreerd'."
+                )
+              ),
+              conditionalPanel(
+                PREV_DIM_IS_SES_JS,
+                helpText(
+                  "Deze SES-variabelen hebben maar één jaar (2024) data, dus geen jaarreeks -- ",
+                  "de grafiek toont de prevalentie per categorie in plaats van per jaar."
+                )
               )
             ),
             mainPanel(
-              plotOutput("prev_plot"),
-              h4("Data in de grafiek"),
-              tableOutput("prev_table"),
-              br(),
-              chart_data_downloads_ui("prev_diag_dl", chart_type = "line", offer_n = TRUE)
+              conditionalPanel(
+                PREV_DIM_NOT_SES_JS,
+                plotOutput("prev_plot"),
+                h4("Data in de grafiek"),
+                tableOutput("prev_table"),
+                br(),
+                chart_data_downloads_ui("prev_diag_dl", chart_type = "line", offer_n = TRUE)
+              ),
+              conditionalPanel(
+                PREV_DIM_IS_SES_JS,
+                plotOutput("prev_ses_plot"),
+                h4("Data in de grafiek"),
+                tableOutput("prev_ses_table"),
+                br(),
+                chart_data_downloads_ui("prev_diag_ses_dl", chart_type = "bar", offer_n = TRUE)
+              )
             )
           )
         ),
@@ -221,6 +258,28 @@ ui <- fluidPage(
               chart_data_downloads_ui("angst_dl", chart_type = "grouped_bar", offer_n = TRUE)
             )
           )
+        )
+      )
+    ),
+    tabPanel(
+      "Tellingen algemeen",
+      br(),
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("tellingen_var", "SES-variabele", choices = TELLINGEN_VAR_CHOICES),
+          uiOutput("tellingen_subgroep_picker"),
+          uiOutput("tellingen_ses_breakdown_picker"),
+          helpText(
+            "Aantal personen per categorie van de gekozen SES-variabele -- de bevolkingsbasis ",
+            "achter de uitsplitsingen op de andere tabbladen."
+          )
+        ),
+        mainPanel(
+          plotOutput("tellingen_plot"),
+          h4("Data in de grafiek"),
+          tableOutput("tellingen_table"),
+          br(),
+          chart_data_downloads_ui("tellingen_dl", chart_type = "bar")
         )
       )
     ),
@@ -261,7 +320,9 @@ server <- function(input, output, session) {
       "atc_combi_dl" = "^combi_",
       "ggz_kosten_dl" = "^ggz_",
       "prev_diag_dl" = "^prev_",
-      "angst_dl" = "^angst_"
+      "prev_diag_ses_dl" = "^prev_",
+      "angst_dl" = "^angst_",
+      "tellingen_dl" = "^tellingen_"
     )
   )
 
@@ -292,6 +353,15 @@ server <- function(input, output, session) {
     checkboxGroupInput("atc_subgroepen", "Categorieën", choices = choices, selected = cats)
   })
 
+  # Alleen de 8 "ses analysis"-variabelen ondersteunen deze extra
+  # uitsplitsing (zie SES_BREAKDOWN_VARS/ses_filter() in utils/pharm_data.R)
+  # -- ATC's eigen leeftijdsgroepen lopen vanaf "0-17" (LEEFTIJD_ORDER_FULL).
+  output$atc_ses_breakdown_picker <- renderUI({
+    req(input$atc_dim)
+    if (!(input$atc_dim %in% SES_BREAKDOWN_VARS)) return(NULL)
+    ses_breakdown_picker_ui("atc_ses_leeftijd", "atc_ses_geslacht", LEEFTIJD_ORDER_FULL)
+  })
+
   atc_subgroep_scope <- function(sel = NULL) {
     DIM_SCOPE_MAP[[opt(sel, "atc_dim")]]
   }
@@ -306,11 +376,16 @@ server <- function(input, output, session) {
     metric_group <- opt(sel, "atc_metric_group")
     klassen <- opt(sel, "atc_klassen")
     req(klassen)
-    df <- ATC_PREVALENTIE_DATA[
-      ATC_PREVALENTIE_DATA$dim == dim &
-        ATC_PREVALENTIE_DATA$metric_group == metric_group &
-        ATC_PREVALENTIE_DATA$klasse %in% klassen,
-    ]
+    if (dim %in% SES_BREAKDOWN_VARS) {
+      df <- ses_filter(ATC_SES_DATA, dim, tc_or(opt(sel, "atc_ses_leeftijd"), ""), tc_or(opt(sel, "atc_ses_geslacht"), ""))
+      df <- df[df$metric_group == metric_group & df$klasse %in% klassen, ]
+    } else {
+      df <- ATC_PREVALENTIE_DATA[
+        ATC_PREVALENTIE_DATA$dim == dim &
+          ATC_PREVALENTIE_DATA$metric_group == metric_group &
+          ATC_PREVALENTIE_DATA$klasse %in% klassen,
+      ]
+    }
     if (!identical(dim, "totaal")) {
       subgroepen <- opt(sel, "atc_subgroepen")
       req(subgroepen)
@@ -445,6 +520,33 @@ server <- function(input, output, session) {
     checkboxGroupInput("ggz_subgroepen", "Categorieën", choices = choices, selected = cats)
   })
 
+  # "Prevalentie" vergt een populatie-noemer (n_17plus) die de SES-variabelen
+  # niet hebben (zie load_ggz_kosten_ses()'s eigen doc-comment) -- die optie
+  # valt daarom weg zodra zo'n variabele gekozen is, in plaats van een
+  # maatstaf aan te bieden die altijd NA zou geven.
+  output$ggz_metric_picker <- renderUI({
+    req(input$ggz_dim)
+    choices <- c(
+      "Totale kosten (mln euro)" = "totale_kosten",
+      "Aantal gebruikers" = "gebruikers",
+      "Gemiddelde kosten per gebruiker (euro)" = "gem_kosten_per_gebr"
+    )
+    if (!(input$ggz_dim %in% SES_BREAKDOWN_VARS)) {
+      choices <- c(choices, "Prevalentie (per 1.000 personen, 17+)" = "prevalentie")
+    }
+    selected <- if (isTRUE(input$ggz_metric %in% choices)) input$ggz_metric else choices[[1]]
+    radioButtons("ggz_metric", "Maatstaf", choices = choices, selected = selected)
+  })
+
+  # Alleen de 8 "ses analysis"-variabelen ondersteunen deze extra
+  # uitsplitsing -- GGZ-kosten's eigen leeftijdsgroepen zijn 17+
+  # (LEEFTIJD_ORDER_17PLUS), net als de rest van dit tabblad.
+  output$ggz_ses_breakdown_picker <- renderUI({
+    req(input$ggz_dim)
+    if (!(input$ggz_dim %in% SES_BREAKDOWN_VARS)) return(NULL)
+    ses_breakdown_picker_ui("ggz_ses_leeftijd", "ggz_ses_geslacht", LEEFTIJD_ORDER_17PLUS)
+  })
+
   ggz_subgroep_scope <- function(sel = NULL) {
     DIM_SCOPE_MAP[[opt(sel, "ggz_dim")]]
   }
@@ -466,7 +568,12 @@ server <- function(input, output, session) {
   ggz_data_for <- function(sel = NULL) {
     dim <- opt(sel, "ggz_dim")
     metric <- opt(sel, "ggz_metric")
-    df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == dim, ]
+    req(metric)
+    if (dim %in% SES_BREAKDOWN_VARS) {
+      df <- ses_filter(GGZ_KOSTEN_SES_DATA, dim, tc_or(opt(sel, "ggz_ses_leeftijd"), ""), tc_or(opt(sel, "ggz_ses_geslacht"), ""))
+    } else {
+      df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == dim, ]
+    }
     if (!identical(dim, "totaal")) {
       subgroepen <- opt(sel, "ggz_subgroepen")
       req(subgroepen)
@@ -531,7 +638,10 @@ server <- function(input, output, session) {
     data_for = ggz_data_for,
     source_output = "iteration0_ggz.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_GGZ_FILE),
-    n_col = "n_17plus",
+    # De SES-variabelen hebben geen n_17plus-kolom (zie load_ggz_kosten_ses()),
+    # dus "Include N" valt daar vanzelf weg i.p.v. te proberen een kolom te
+    # lezen die niet bestaat.
+    n_col = function(sel) if (opt(sel, "ggz_dim") %in% SES_BREAKDOWN_VARS) "" else "n_17plus",
     count_col = "gebruikers"
   )
 
@@ -642,6 +752,86 @@ server <- function(input, output, session) {
     n_col = "n_pop"
   )
 
+  # "Alle diagnosegroepen", SES-variant: één jaar (2024) van data, dus geen
+  # jaarreeks om over te plotten (zie PREV_SES_DATA/PREV_DIM_IS_SES_JS
+  # hierboven) -- toont in plaats daarvan de prevalentie van de gekozen
+  # diagnosegroep per SES-categorie, als staafdiagram. Los van prev_diag_dl
+  # gehouden (eigen chart_data_downloads_server-registratie) omdat
+  # category_col/series_col -- anders dan chart_type -- niet reactief kunnen
+  # zijn: jaar/groep (regel) vs. groep/serie (staaf) zijn structureel
+  # andere assen, niet hetzelfde chart met een andere look.
+  output$prev_ses_breakdown_picker <- renderUI({
+    req(input$prev_dim)
+    if (!(input$prev_dim %in% SES_BREAKDOWN_VARS)) return(NULL)
+    ses_breakdown_picker_ui("prev_ses_leeftijd", "prev_ses_geslacht", LEEFTIJD_ORDER_17PLUS)
+  })
+
+  prev_ses_title <- function(sel = NULL) {
+    diag_label <- pharm_pretty(opt(sel, "prev_diagnose_single"), scope = "diagnosegroep")
+    paste0(
+      "Prevalentie van '", diag_label, "' (per 1.000 personen) naar ",
+      pharm_dim_label(opt(sel, "prev_dim")), ", 2024"
+    )
+  }
+
+  prev_ses_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "prev_dim")
+    diagnose_single <- opt(sel, "prev_diagnose_single")
+    req(diagnose_single)
+    df <- ses_filter(PREV_SES_DATA, dim, tc_or(opt(sel, "prev_ses_leeftijd"), ""), tc_or(opt(sel, "prev_ses_geslacht"), ""))
+    df <- df[df$diagnosegroep == diagnose_single, ]
+    subgroepen <- opt(sel, "prev_subgroepen")
+    req(subgroepen)
+    df <- df[df$subgroep %in% subgroepen, ]
+    df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
+    df$serie <- "Prevalentie"
+    df
+  }
+
+  prev_ses_data_raw <- reactive(prev_ses_data_for(NULL))
+
+  prev_ses_plot_data <- reactive({
+    df <- prev_ses_data_raw()
+    df$groep <- pharm_relabel_factor(df$groep, scope = prev_groep_scope())
+    df
+  })
+
+  output$prev_ses_plot <- renderPlot({
+    df <- prev_ses_plot_data()
+    ggplot(df, aes(x = groep, y = prevalentie)) +
+      geom_col(fill = ahti_branding$colors$helder_blauw) +
+      scale_y_continuous(labels = pharm_number_labels()) +
+      labs(title = prev_ses_title(), x = pharm_dim_label(input$prev_dim), y = "Prevalentie per 1.000 personen") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  output$prev_ses_table <- renderTable({
+    df <- prev_ses_plot_data()
+    data.frame(
+      Uitsplitsing = as.character(df$groep),
+      `Prevalentie per 1.000` = pharm_number_labels(0.1)(df$prevalentie),
+      check.names = FALSE
+    )
+  })
+
+  chart_data_downloads_server(
+    id = "prev_diag_ses_dl",
+    data = prev_ses_data_raw,
+    chart_type = "bar",
+    category_col = "groep",
+    series_col = "serie",
+    value_col = "prevalentie",
+    filename_prefix = "ggz_prevalentie_diagnosegroepen_ses",
+    agg_fun = NULL,
+    category_scope = prev_groep_scope,
+    series_scope = "prev_ses_serie",
+    figure_title = prev_ses_title,
+    data_for = prev_ses_data_for,
+    source_output = "prev_ses.xlsx",
+    n_col = "n_pop"
+  )
+
   ## -- Prevalentie psychische aandoeningen: angststoornis naar subgroep -----
 
   output$angst_subgroep_picker <- renderUI({
@@ -730,6 +920,81 @@ server <- function(input, output, session) {
     source_output = "prevalenties_angst_22_24.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_ANGST_FILE),
     n_col = "n_pop"
+  )
+
+  ## -- Tellingen algemeen -----------------------------------------------------
+
+  tellingen_subgroep_scope <- function(sel = NULL) {
+    DIM_SCOPE_MAP[[opt(sel, "tellingen_var")]]
+  }
+
+  output$tellingen_subgroep_picker <- renderUI({
+    req(input$tellingen_var)
+    cats <- pharm_dim_categories(input$tellingen_var, LEEFTIJD_ORDER_FULL)
+    choices <- setNames(cats, vapply(cats, pharm_pretty, character(1), scope = DIM_SCOPE_MAP[[input$tellingen_var]]))
+    checkboxGroupInput("tellingen_subgroepen", "Categorieën", choices = choices, selected = cats)
+  })
+
+  output$tellingen_ses_breakdown_picker <- renderUI({
+    ses_breakdown_picker_ui("tellingen_leeftijd", "tellingen_geslacht", LEEFTIJD_ORDER_FULL)
+  })
+
+  tellingen_title <- function(sel = NULL) {
+    paste0("Aantal personen naar ", pharm_dim_label(opt(sel, "tellingen_var")))
+  }
+
+  tellingen_data_for <- function(sel = NULL) {
+    dim <- opt(sel, "tellingen_var")
+    df <- ses_filter(TELLINGEN_DATA, dim, tc_or(opt(sel, "tellingen_leeftijd"), ""), tc_or(opt(sel, "tellingen_geslacht"), ""))
+    subgroepen <- opt(sel, "tellingen_subgroepen")
+    req(subgroepen)
+    df <- df[df$subgroep %in% subgroepen, ]
+    df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_FULL)
+    df$serie <- "Aantal personen"
+    df
+  }
+
+  tellingen_data_raw <- reactive(tellingen_data_for(NULL))
+
+  tellingen_plot_data <- reactive({
+    df <- tellingen_data_raw()
+    df$groep <- pharm_relabel_factor(df$groep, scope = tellingen_subgroep_scope())
+    df
+  })
+
+  output$tellingen_plot <- renderPlot({
+    df <- tellingen_plot_data()
+    ggplot(df, aes(x = groep, y = n)) +
+      geom_col(fill = ahti_branding$colors$helder_blauw) +
+      scale_y_continuous(labels = pharm_number_labels()) +
+      labs(title = tellingen_title(), x = pharm_dim_label(input$tellingen_var), y = "Aantal personen") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  output$tellingen_table <- renderTable({
+    df <- tellingen_plot_data()
+    data.frame(
+      Categorie = as.character(df$groep),
+      `Aantal personen` = pharm_number_labels(1)(df$n),
+      check.names = FALSE
+    )
+  })
+
+  chart_data_downloads_server(
+    id = "tellingen_dl",
+    data = tellingen_data_raw,
+    chart_type = "bar",
+    category_col = "groep",
+    series_col = "serie",
+    value_col = "n",
+    filename_prefix = "tellingen_algemeen",
+    agg_fun = NULL,
+    category_scope = tellingen_subgroep_scope,
+    series_scope = "tellingen_serie",
+    figure_title = tellingen_title,
+    data_for = tellingen_data_for,
+    source_output = "tellingen_algemeen_final.xlsx"
   )
 
   favorites_panel_server("favorites")

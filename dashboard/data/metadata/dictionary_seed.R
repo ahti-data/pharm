@@ -112,5 +112,106 @@ dictionary_seed_entries <- function() {
     entry("86+", "leeftijd_groep", "86 jaar en ouder")
   )
 
-  c(klasse, categorie, diagnosegroep, sg_groep, hbopl, inkomen_klasse, seswoa_cat, leeftijd_groep)
+  # De 8 nieuwe "ses analysis"-variabelen (zie SES_BREAKDOWN_VARS in
+  # utils/pharm_data.R) -- elk zijn eigen scope, ook waar de percentielgrenzen
+  # toevallig samenvallen met "seswoa_cat" (seswoa_old6), want het zijn
+  # andere onderliggende variabelen (zie DIM_CHOICES's eigen doc-comment).
+  seswoa_cat5 <- list(
+    entry("0-20%", "seswoa_cat5", "0–20% (laagste SES-WOA)"),
+    entry("20-40%", "seswoa_cat5", "20–40%"),
+    entry("40-60%", "seswoa_cat5", "40–60%"),
+    entry("60-80%", "seswoa_cat5", "60–80%"),
+    entry("80-100%", "seswoa_cat5", "80–100% (hoogste SES-WOA)"),
+    entry("Onbekend", "seswoa_cat5", "Onbekend")
+  )
+
+  seswoa_cat6 <- list(
+    entry("0-10%", "seswoa_cat6", "0–10% (laagste SES-WOA)"),
+    entry("10-20%", "seswoa_cat6", "10–20%"),
+    entry("20-35%", "seswoa_cat6", "20–35%"),
+    entry("35-50%", "seswoa_cat6", "35–50%"),
+    entry("50-75%", "seswoa_cat6", "50–75%"),
+    entry("75-100%", "seswoa_cat6", "75–100% (hoogste SES-WOA)"),
+    entry("Onbekend", "seswoa_cat6", "Onbekend")
+  )
+
+  seswoa_cat10 <- list(
+    entry("0-10%", "seswoa_cat10", "0–10% (laagste SES-WOA)"),
+    entry("10-20%", "seswoa_cat10", "10–20%"),
+    entry("20-30%", "seswoa_cat10", "20–30%"),
+    entry("30-40%", "seswoa_cat10", "30–40%"),
+    entry("40-50%", "seswoa_cat10", "40–50%"),
+    entry("50-60%", "seswoa_cat10", "50–60%"),
+    entry("60-70%", "seswoa_cat10", "60–70%"),
+    entry("70-80%", "seswoa_cat10", "70–80%"),
+    entry("80-90%", "seswoa_cat10", "80–90%"),
+    entry("90-100%", "seswoa_cat10", "90–100% (hoogste SES-WOA)"),
+    entry("Onbekend", "seswoa_cat10", "Onbekend")
+  )
+
+  # SES-WOA op buurtniveau (i.p.v. persoonsniveau) -- zelfde percentielgrenzen
+  # als de persoonsniveau-varianten hierboven, dus zelfde labels, maar een
+  # eigen scope omdat het een andere variabele is.
+  seswoa_buurt_cat5 <- list(
+    entry("0-20%", "seswoa_buurt_cat5", "0–20% (laagste SES-WOA buurt)"),
+    entry("20-40%", "seswoa_buurt_cat5", "20–40%"),
+    entry("40-60%", "seswoa_buurt_cat5", "40–60%"),
+    entry("60-80%", "seswoa_buurt_cat5", "60–80%"),
+    entry("80-100%", "seswoa_buurt_cat5", "80–100% (hoogste SES-WOA buurt)"),
+    entry("Onbekend", "seswoa_buurt_cat5", "Onbekend")
+  )
+
+  seswoa_buurt_cat6 <- list(
+    entry("0-10%", "seswoa_buurt_cat6", "0–10% (laagste SES-WOA buurt)"),
+    entry("10-20%", "seswoa_buurt_cat6", "10–20%"),
+    entry("20-35%", "seswoa_buurt_cat6", "20–35%"),
+    entry("35-50%", "seswoa_buurt_cat6", "35–50%"),
+    entry("50-75%", "seswoa_buurt_cat6", "50–75%"),
+    entry("75-100%", "seswoa_buurt_cat6", "75–100% (hoogste SES-WOA buurt)"),
+    entry("Onbekend", "seswoa_buurt_cat6", "Onbekend")
+  )
+
+  seswoa_buurt_cat10 <- list(
+    entry("0-10%", "seswoa_buurt_cat10", "0–10% (laagste SES-WOA buurt)"),
+    entry("10-20%", "seswoa_buurt_cat10", "10–20%"),
+    entry("20-30%", "seswoa_buurt_cat10", "20–30%"),
+    entry("30-40%", "seswoa_buurt_cat10", "30–40%"),
+    entry("40-50%", "seswoa_buurt_cat10", "40–50%"),
+    entry("50-60%", "seswoa_buurt_cat10", "50–60%"),
+    entry("60-70%", "seswoa_buurt_cat10", "60–70%"),
+    entry("70-80%", "seswoa_buurt_cat10", "70–80%"),
+    entry("80-90%", "seswoa_buurt_cat10", "80–90%"),
+    entry("90-100%", "seswoa_buurt_cat10", "90–100% (hoogste SES-WOA buurt)"),
+    entry("Onbekend", "seswoa_buurt_cat10", "Onbekend")
+  )
+
+  # "geen_waarde_bekend" (de moeder zelf is onbekend) staat los van
+  # "Onbekend" (de moeder is bekend, haar SES-WOA-waarde niet) -- zie
+  # SESWOA_CAT_MOEDER_ORDER in utils/pharm_data.R.
+  seswoa_cat_moeder <- list(
+    entry("0-10%", "seswoa_cat_moeder", "0–10% (laagste SES-WOA moeder)"),
+    entry("10-20%", "seswoa_cat_moeder", "10–20%"),
+    entry("20-35%", "seswoa_cat_moeder", "20–35%"),
+    entry("35-50%", "seswoa_cat_moeder", "35–50%"),
+    entry("50-75%", "seswoa_cat_moeder", "50–75%"),
+    entry("75-100%", "seswoa_cat_moeder", "75–100% (hoogste SES-WOA moeder)"),
+    entry("Onbekend", "seswoa_cat_moeder", "Onbekend"),
+    entry("geen_waarde_bekend", "seswoa_cat_moeder", "Geen waarde bekend (moeder onbekend)")
+  )
+
+  # Scope "opleiding_moeder_cat", niet de kolomnaam "opleiding_moeder" --
+  # zelfde reden als "inkomen_klasse_pct" hierboven (zie DIM_SCOPE_MAP's
+  # eigen doc-comment in utils/pharm_data.R).
+  opleiding_moeder_cat <- list(
+    entry("basisonderwijs, vmbo, mbo1", "opleiding_moeder_cat", "Basisonderwijs, vmbo, mbo1"),
+    entry("havo, vwo, mbo2-4", "opleiding_moeder_cat", "Havo, vwo, mbo2-4"),
+    entry("hbo, wo", "opleiding_moeder_cat", "Hbo, wo"),
+    entry("onbekend", "opleiding_moeder_cat", "Onbekend"),
+    entry("geen_waarde_bekend", "opleiding_moeder_cat", "Geen waarde bekend (moeder onbekend)")
+  )
+
+  c(klasse, categorie, diagnosegroep, sg_groep, hbopl, inkomen_klasse, seswoa_cat, leeftijd_groep,
+    seswoa_cat5, seswoa_cat6, seswoa_cat10,
+    seswoa_buurt_cat5, seswoa_buurt_cat6, seswoa_buurt_cat10,
+    seswoa_cat_moeder, opleiding_moeder_cat)
 }
