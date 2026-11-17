@@ -376,8 +376,11 @@ server <- function(input, output, session) {
     metric_group <- opt(sel, "atc_metric_group")
     klassen <- opt(sel, "atc_klassen")
     req(klassen)
-    if (dim %in% SES_BREAKDOWN_VARS) {
-      df <- ses_filter(ATC_SES_DATA, dim, tc_or(opt(sel, "atc_ses_leeftijd"), ""), tc_or(opt(sel, "atc_ses_geslacht"), ""))
+    is_ses <- dim %in% SES_BREAKDOWN_VARS
+    if (is_ses) {
+      ses_leeftijd <- tc_or(opt(sel, "atc_ses_leeftijd"), character(0))
+      ses_geslacht <- tc_or(opt(sel, "atc_ses_geslacht"), character(0))
+      df <- ses_filter(ATC_SES_DATA, dim, ses_leeftijd, ses_geslacht)
       df <- df[df$metric_group == metric_group & df$klasse %in% klassen, ]
     } else {
       df <- ATC_PREVALENTIE_DATA[
@@ -393,8 +396,12 @@ server <- function(input, output, session) {
     }
     klasse_levels <- if (identical(metric_group, "poly")) ATC_POLY_COLS else ATC_KLASSE_COLS
     df$klasse <- factor(df$klasse, levels = base::intersect(klasse_levels, unique(df$klasse)))
-    leeftijd_order <- if (identical(dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
-    df$subgroep <- pharm_order_subgroep(df$subgroep, dim, leeftijd_order)
+    if (is_ses) {
+      df$subgroep <- ses_combined_groep(df, dim, ses_leeftijd, ses_geslacht, LEEFTIJD_ORDER_FULL)
+    } else {
+      leeftijd_order <- if (identical(dim, "leeftijd")) LEEFTIJD_ORDER_FULL else LEEFTIJD_ORDER_17PLUS
+      df$subgroep <- pharm_order_subgroep(df$subgroep, dim, leeftijd_order)
+    }
     df
   }
 
@@ -569,8 +576,11 @@ server <- function(input, output, session) {
     dim <- opt(sel, "ggz_dim")
     metric <- opt(sel, "ggz_metric")
     req(metric)
-    if (dim %in% SES_BREAKDOWN_VARS) {
-      df <- ses_filter(GGZ_KOSTEN_SES_DATA, dim, tc_or(opt(sel, "ggz_ses_leeftijd"), ""), tc_or(opt(sel, "ggz_ses_geslacht"), ""))
+    is_ses <- dim %in% SES_BREAKDOWN_VARS
+    if (is_ses) {
+      ses_leeftijd <- tc_or(opt(sel, "ggz_ses_leeftijd"), character(0))
+      ses_geslacht <- tc_or(opt(sel, "ggz_ses_geslacht"), character(0))
+      df <- ses_filter(GGZ_KOSTEN_SES_DATA, dim, ses_leeftijd, ses_geslacht)
     } else {
       df <- GGZ_KOSTEN_DATA[GGZ_KOSTEN_DATA$dim == dim, ]
     }
@@ -580,7 +590,11 @@ server <- function(input, output, session) {
       df <- df[df$subgroep %in% subgroepen, ]
     }
     df$categorie <- factor(df$categorie, levels = GGZ_CATEGORIE_ORDER)
-    df$subgroep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
+    if (is_ses) {
+      df$subgroep <- ses_combined_groep(df, dim, ses_leeftijd, ses_geslacht, LEEFTIJD_ORDER_17PLUS)
+    } else {
+      df$subgroep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
+    }
     df$waarde <- if (identical(metric, "totale_kosten")) {
       df$totale_kosten / 1e6
     } else if (identical(metric, "prevalentie")) {
@@ -778,12 +792,14 @@ server <- function(input, output, session) {
     dim <- opt(sel, "prev_dim")
     diagnose_single <- opt(sel, "prev_diagnose_single")
     req(diagnose_single)
-    df <- ses_filter(PREV_SES_DATA, dim, tc_or(opt(sel, "prev_ses_leeftijd"), ""), tc_or(opt(sel, "prev_ses_geslacht"), ""))
+    ses_leeftijd <- tc_or(opt(sel, "prev_ses_leeftijd"), character(0))
+    ses_geslacht <- tc_or(opt(sel, "prev_ses_geslacht"), character(0))
+    df <- ses_filter(PREV_SES_DATA, dim, ses_leeftijd, ses_geslacht)
     df <- df[df$diagnosegroep == diagnose_single, ]
     subgroepen <- opt(sel, "prev_subgroepen")
     req(subgroepen)
     df <- df[df$subgroep %in% subgroepen, ]
-    df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_17PLUS)
+    df$groep <- ses_combined_groep(df, dim, ses_leeftijd, ses_geslacht, LEEFTIJD_ORDER_17PLUS)
     df$serie <- "Prevalentie"
     df
   }
@@ -945,11 +961,13 @@ server <- function(input, output, session) {
 
   tellingen_data_for <- function(sel = NULL) {
     dim <- opt(sel, "tellingen_var")
-    df <- ses_filter(TELLINGEN_DATA, dim, tc_or(opt(sel, "tellingen_leeftijd"), ""), tc_or(opt(sel, "tellingen_geslacht"), ""))
+    ses_leeftijd <- tc_or(opt(sel, "tellingen_leeftijd"), character(0))
+    ses_geslacht <- tc_or(opt(sel, "tellingen_geslacht"), character(0))
+    df <- ses_filter(TELLINGEN_DATA, dim, ses_leeftijd, ses_geslacht)
     subgroepen <- opt(sel, "tellingen_subgroepen")
     req(subgroepen)
     df <- df[df$subgroep %in% subgroepen, ]
-    df$groep <- pharm_order_subgroep(df$subgroep, dim, LEEFTIJD_ORDER_FULL)
+    df$groep <- ses_combined_groep(df, dim, ses_leeftijd, ses_geslacht, LEEFTIJD_ORDER_FULL)
     df$serie <- "Aantal personen"
     df
   }

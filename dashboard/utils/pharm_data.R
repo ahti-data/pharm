@@ -295,11 +295,13 @@ pharm_dim_categories <- function(dim, leeftijd_order = LEEFTIJD_ORDER_17PLUS) {
 
 #' UI for the optional "verder uitsplitsen naar leeftijd en/of geslacht"
 #' picker, shown only while the chart's "Uitsplitsing naar" is one of
-#' `SES_BREAKDOWN_VARS` (see `ses_breakdown_for()`). Two plain `selectInput`s
-#' rather than checkboxes, so "neither" is always an unambiguous, valid
-#' choice ("Alle leeftijden"/"Beide geslachten") instead of a state the UI
-#' has to forbid.
-#' @param id_leeftijd,id_geslacht Input ids for the two selects.
+#' `SES_BREAKDOWN_VARS` (see `ses_breakdown_for()`). Two `checkboxGroupInput`s
+#' (same multi-select widget the app already uses for its "Categorieën"
+#' pickers) so several leeftijd- and/or geslacht-groepen can be picked at
+#' once -- each selected combination gets its own bar (see
+#' `ses_combined_groep()`), not just a single filtered slice. Nothing
+#' checked means "geen extra uitsplitsing" (see `ses_breakdown_for()`).
+#' @param id_leeftijd,id_geslacht Input ids for the two checkbox groups.
 #' @param leeftijd_order Age-band order to offer (`LEEFTIJD_ORDER_FULL` for
 #'   ATC/tellingen, `LEEFTIJD_ORDER_17PLUS` for GGZ-kosten/prevalentie -- see
 #'   each domain's own `load_*_ses()`).
@@ -308,20 +310,21 @@ ses_breakdown_picker_ui <- function(id_leeftijd, id_geslacht, leeftijd_order) {
     leeftijd_order, as.character(pharm_relabel_factor(leeftijd_order, scope = "leeftijd_groep"))
   )
   shiny::tagList(
-    shiny::selectInput(id_leeftijd, "Leeftijd", choices = c("Alle leeftijden" = "", leeftijd_choices)),
-    shiny::selectInput(id_geslacht, "Geslacht", choices = c("Beide geslachten" = "", "Mannen" = "Mannen", "Vrouwen" = "Vrouwen"))
+    shiny::checkboxGroupInput(id_leeftijd, "Leeftijd (geen = alle leeftijden)", choices = leeftijd_choices),
+    shiny::checkboxGroupInput(id_geslacht, "Geslacht (geen = beide geslachten)",
+                               choices = c("Mannen" = "Mannen", "Vrouwen" = "Vrouwen"))
   )
 }
 
 #' Which of `load_atc_ses()`/`load_prevalentie_ses()`/`load_ggz_kosten_ses()`/
 #' `load_tellingen_algemeen()`'s four `breakdown` values to use, given the
-#' "verder uitsplitsen"-picker's current leeftijd/geslacht selections (`""`
-#' meaning "not chosen", as `ses_breakdown_picker_ui()`'s own "Alle
-#' leeftijden"/"Beide geslachten" options send).
-#' @param leeftijd_val,geslacht_val The two selects' current values.
-ses_breakdown_for <- function(leeftijd_val, geslacht_val) {
-  has_leeftijd <- nzchar(tc_or(leeftijd_val, ""))
-  has_geslacht <- nzchar(tc_or(geslacht_val, ""))
+#' "verder uitsplitsen"-picker's current leeftijd/geslacht selections
+#' (length-0 meaning "none checked", as `ses_breakdown_picker_ui()` sends
+#' when nothing is ticked).
+#' @param leeftijd_vals,geslacht_vals The two checkbox groups' current values.
+ses_breakdown_for <- function(leeftijd_vals, geslacht_vals) {
+  has_leeftijd <- length(leeftijd_vals) > 0
+  has_geslacht <- length(geslacht_vals) > 0
   if (has_leeftijd && has_geslacht) "leeftijd_geslacht"
   else if (has_leeftijd) "leeftijd"
   else if (has_geslacht) "geslacht"
@@ -330,18 +333,75 @@ ses_breakdown_for <- function(leeftijd_val, geslacht_val) {
 
 #' Filter one domain's `load_*_ses()`/`load_tellingen_algemeen()` output down
 #' to one SES-variabele, the breakdown [ses_breakdown_for()] resolves to, and
-#' (when chosen) one specific leeftijd/geslacht value.
+#' (when chosen) the picked leeftijd/geslacht value(s) -- one or several.
 #' @param df One of those functions' own output (needs `dim`, `breakdown`,
 #'   `leeftijd_groep`, `geslacht` columns).
 #' @param dim SES-variabele (one of `SES_BREAKDOWN_VARS`).
-#' @param leeftijd_val,geslacht_val The picker's current values (`""` = not
-#'   chosen -- see [ses_breakdown_for()]).
-ses_filter <- function(df, dim, leeftijd_val, geslacht_val) {
-  breakdown <- ses_breakdown_for(leeftijd_val, geslacht_val)
+#' @param leeftijd_vals,geslacht_vals The picker's current values (length-0 =
+#'   not chosen -- see [ses_breakdown_for()]).
+ses_filter <- function(df, dim, leeftijd_vals, geslacht_vals) {
+  breakdown <- ses_breakdown_for(leeftijd_vals, geslacht_vals)
   out <- df[df$dim == dim & df$breakdown == breakdown, ]
-  if (nzchar(tc_or(leeftijd_val, ""))) out <- out[out$leeftijd_groep == leeftijd_val, ]
-  if (nzchar(tc_or(geslacht_val, ""))) out <- out[out$geslacht == geslacht_val, ]
+  if (length(leeftijd_vals) > 0) out <- out[out$leeftijd_groep %in% leeftijd_vals, ]
+  if (length(geslacht_vals) > 0) out <- out[out$geslacht %in% geslacht_vals, ]
   out
+}
+
+#' This chart's category factor for a SES breakdown: the chosen
+#' SES-variabele's own category (in its natural order), combined with
+#' leeftijd and/or geslacht -- in their own natural order, nested within
+#' each SES-categorie -- whenever 1+ values of that dimension were picked,
+#' so every selected leeftijd/geslacht combination gets its own bar instead
+#' of being silently collapsed into one. Falls back to the plain, unlabeled
+#' [pharm_order_subgroep()] when neither is picked, so the "geen extra
+#' uitsplitsing" case is unchanged from before this existed.
+#'
+#' Pretty-labels the SES-categorie and leeftijd pieces through the
+#' Dictionary itself (geslacht is already a plain Dutch word) *before*
+#' combining them, rather than leaving that to
+#' `chart_data_downloads_server()`'s own `category_scope` -- once combined
+#' into one composite string there is no single raw value/scope left for
+#' that to relabel (see CLAUDE.md's note on composite category columns).
+#' This also means the composite case doesn't honor the "Format from
+#' dictionary" checkbox (it's always pretty-labelled) -- the same accepted
+#' trade-off CLAUDE.md already documents for any other composite column
+#' (e.g. `combi_data_for()`'s own joined ATC-klasse combinations).
+#' @param df A [ses_filter()]-ed data frame (has `subgroep`, `leeftijd_groep`, `geslacht`).
+#' @param dim SES-variabele (for the SES-categorie's own order/scope).
+#' @param leeftijd_vals,geslacht_vals The picker's current values.
+#' @param leeftijd_order Age-band order matching the domain (see
+#'   [ses_breakdown_picker_ui()]).
+ses_combined_groep <- function(df, dim, leeftijd_vals, geslacht_vals, leeftijd_order) {
+  has_leeftijd <- length(leeftijd_vals) > 0
+  has_geslacht <- length(geslacht_vals) > 0
+  if (!has_leeftijd && !has_geslacht) {
+    return(pharm_order_subgroep(df$subgroep, dim, leeftijd_order))
+  }
+
+  ses_scope <- DIM_SCOPE_MAP[[dim]]
+  ses_order <- pharm_dim_order(dim, leeftijd_order)
+  # outer()+t()+as.vector() nests the second dimension inside the first --
+  # e.g. ses_order = c("A","B"), lft = c("x","y") gives "A|x","A|y","B|x",
+  # "B|y" (A's own two bars stay together), never "A|x","B|x","A|y","B|y".
+  nest <- function(primary, secondary) as.vector(t(outer(primary, secondary, paste, sep = " | ")))
+
+  label <- as.character(pharm_relabel_factor(df$subgroep, scope = ses_scope))
+  level_grid <- as.character(pharm_relabel_factor(ses_order, scope = ses_scope))
+
+  if (has_leeftijd) {
+    lft_order <- intersect(leeftijd_order, leeftijd_vals)
+    lft_pretty <- stats::setNames(as.character(pharm_relabel_factor(lft_order, scope = "leeftijd_groep")), lft_order)
+    label <- paste(label, lft_pretty[df$leeftijd_groep], sep = " | ")
+    level_grid <- nest(level_grid, unname(lft_pretty))
+  }
+  if (has_geslacht) {
+    gesl_order <- intersect(c("Mannen", "Vrouwen"), geslacht_vals)
+    label <- paste(label, df$geslacht, sep = " | ")
+    level_grid <- nest(level_grid, gesl_order)
+  }
+
+  extra <- base::setdiff(unique(label), level_grid)
+  factor(label, levels = c(level_grid, extra))
 }
 
 #' Relabel a (possibly ordered-factor) column through the shared Dictionary,
