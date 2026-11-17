@@ -113,17 +113,35 @@ ui <- fluidPage(
                 choices = c("Medicatieklasse (ATC)" = "atc", "Mono-/polyfarmacie" = "poly")
               ),
               uiOutput("atc_klasse_picker"),
+              conditionalPanel(
+                "input.atc_metric_group == 'poly'",
+                checkboxInput(
+                  "atc_poly_aandeel", "Toon als aandeel van medicatiegebruikers (optelt tot 100%)",
+                  value = FALSE
+                )
+              ),
               helpText(
                 "Prevalentie van gebruik van psychofarmaca (N05A-N06D) per 1.000 personen, ",
                 "en van mono- versus polyfarmacie (gelijktijdig gebruik van 1, 2, 3 of 4+ klassen)."
               )
             ),
             mainPanel(
-              plotOutput("atc_plot"),
-              h4("Data in de grafiek"),
-              tableOutput("atc_table"),
-              br(),
-              chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar", offer_n = TRUE)
+              conditionalPanel(
+                "!(input.atc_metric_group == 'poly' && input.atc_poly_aandeel)",
+                plotOutput("atc_plot"),
+                h4("Data in de grafiek"),
+                tableOutput("atc_table"),
+                br(),
+                chart_data_downloads_ui("atc_prevalentie_dl", chart_type = "grouped_bar", offer_n = TRUE)
+              ),
+              conditionalPanel(
+                "input.atc_metric_group == 'poly' && input.atc_poly_aandeel",
+                plotOutput("atc_poly_aandeel_plot"),
+                h4("Data in de grafiek"),
+                tableOutput("atc_poly_aandeel_table"),
+                br(),
+                chart_data_downloads_ui("atc_poly_aandeel_dl", chart_type = "stacked_bar")
+              )
             )
           )
         ),
@@ -317,6 +335,7 @@ server <- function(input, output, session) {
     ),
     dl_option_prefixes = c(
       "atc_prevalentie_dl" = "^atc_",
+      "atc_poly_aandeel_dl" = "^atc_",
       "atc_combi_dl" = "^combi_",
       "ggz_kosten_dl" = "^ggz_",
       "prev_diag_dl" = "^prev_",
@@ -454,6 +473,79 @@ server <- function(input, output, session) {
     source_output = "iteration0_atc.xlsx",
     source_mtime = tc_format_source_mtime(PHARM_ATC_FILE),
     n_col = "n"
+  )
+
+  # Mono-/polyfarmacie als aandeel van medicatiegebruikers (optelt tot 100%
+  # per uitsplitsing), i.o.m. de prevalentie-per-1.000-weergave hierboven.
+  # Herbruikt atc_data_for() zelf (dezelfde dim/breakdown/leeftijd/geslacht-
+  # resolutie, inclusief SES-varianten) in plaats van die logica te
+  # dupliceren -- enkel metric_group en de klassen-selectie worden
+  # overschreven, want deze weergave toont altijd alle vier mono-/
+  # polyfarmaciegroepen (anders klopt "optelt tot 100%" niet meer).
+  atc_poly_aandeel_data_for <- function(sel = NULL) {
+    sel2 <- sel
+    sel2[["atc_metric_group"]] <- "poly"
+    sel2[["atc_klassen"]] <- ATC_POLY_COLS
+    df <- atc_data_for(sel2)
+    df %>%
+      dplyr::group_by(subgroep) %>%
+      dplyr::mutate(aandeel = 100 * prevalentie / sum(prevalentie, na.rm = TRUE)) %>%
+      dplyr::ungroup()
+  }
+
+  atc_poly_aandeel_title <- function(sel = NULL) {
+    paste0("Aandeel mono-/polyfarmacie onder medicatiegebruikers — ", pharm_dim_label(opt(sel, "atc_dim")))
+  }
+
+  atc_poly_aandeel_data_raw <- reactive(atc_poly_aandeel_data_for(NULL))
+
+  atc_poly_aandeel_plot_data <- reactive({
+    df <- atc_poly_aandeel_data_raw()
+    df$klasse <- pharm_relabel_factor(df$klasse, scope = "klasse")
+    df$subgroep <- pharm_relabel_factor(df$subgroep, scope = atc_subgroep_scope())
+    df
+  })
+
+  output$atc_poly_aandeel_plot <- renderPlot({
+    df <- atc_poly_aandeel_plot_data()
+    ggplot(df, aes(x = subgroep, y = aandeel, fill = klasse)) +
+      geom_col(position = "stack") +
+      scale_fill_manual(values = setNames(pharm_fill_palette(nlevels(df$klasse)), levels(df$klasse))) +
+      scale_y_continuous(labels = function(x) paste0(x, "%")) +
+      labs(
+        title = atc_poly_aandeel_title(), x = pharm_dim_label(input$atc_dim),
+        y = "Aandeel medicatiegebruikers", fill = NULL
+      ) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  })
+
+  output$atc_poly_aandeel_table <- renderTable({
+    df <- atc_poly_aandeel_plot_data()
+    out <- data.frame(
+      Uitsplitsing = as.character(df$subgroep),
+      `Mono-/polyfarmacie` = as.character(df$klasse),
+      check.names = FALSE
+    )
+    out[["Aandeel gebruikers"]] <- pharm_number_labels(1)(df$aandeel)
+    out
+  })
+
+  chart_data_downloads_server(
+    id = "atc_poly_aandeel_dl",
+    data = atc_poly_aandeel_data_raw,
+    chart_type = "stacked_bar",
+    category_col = "subgroep",
+    series_col = "klasse",
+    value_col = "aandeel",
+    filename_prefix = "atc_poly_aandeel",
+    agg_fun = NULL,
+    category_scope = atc_subgroep_scope,
+    series_scope = "klasse",
+    figure_title = atc_poly_aandeel_title,
+    data_for = atc_poly_aandeel_data_for,
+    source_output = "iteration0_atc.xlsx",
+    source_mtime = tc_format_source_mtime(PHARM_ATC_FILE)
   )
 
   ## -- Medicatiegebruik (ATC): meest voorkomende combinaties -----------------
